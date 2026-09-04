@@ -121,6 +121,7 @@ The menu exposes the operational flow:
 ./mesh.sh subs-generate
 ./mesh.sh subs-sync
 ./mesh.sh rollback <node_name>
+./mesh.sh prune-node <node_name>
 ./mesh.sh remove-node <node_name>
 ./mesh.sh cert-setup
 ./mesh.sh cert-destroy
@@ -134,6 +135,20 @@ INVENTORY=./examples/inventory.2node.json ./mesh.sh
 
 
 ## Node lifecycle
+
+To remove the deployed Xray and HAProxy applications, containers, deployment files, logs, and Xray system hooks from a server while keeping its inventory entry:
+
+```bash
+./mesh.sh prune-node <node_name>
+```
+
+The command requires typing the node name to confirm. Preview the operation without changing the server:
+
+```bash
+./mesh.sh prune-node <node_name> --dry-run
+```
+
+Pruning does not remove Docker, system packages, BBR configuration, or the node from `inventory.json`. The node can be deployed again later with `deploy-node` and `deploy-relay`.
 
 To remove a node from the mesh bookkeeping:
 
@@ -208,4 +223,3 @@ flowchart TD
     R -->|8443| P
     R -->|8444| Q
 ```
-

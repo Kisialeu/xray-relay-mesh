@@ -14,6 +14,7 @@
 #   relay-mesh/mesh.sh subs-generate             generate subscriptions (local only)
 #   relay-mesh/mesh.sh subs-sync                 sync generated subscriptions to Caddy
 #   relay-mesh/mesh.sh rollback <name>           roll back relay config on one node
+#   relay-mesh/mesh.sh prune-node <name>         remove remote Xray/relay deployment, keep inventory entry
 #   relay-mesh/mesh.sh remove-node <name>        decommission a node
 #   relay-mesh/mesh.sh cert-setup                set up CDN cert (from inventory.json's subs block)
 #   relay-mesh/mesh.sh cert-destroy               tear down CDN cert
@@ -56,6 +57,7 @@ run_deploy_caddy()     { "$SCRIPT_DIR/caddy/deploy_caddy.sh" "$INVENTORY"; }
 run_subs_generate()    { "$SCRIPT_DIR/subs/generate_subscriptions.sh" "$INVENTORY"; }
 run_subs_sync()        { "$SCRIPT_DIR/subs/sync_subscriptions.sh" "$INVENTORY"; }
 run_rollback()         { local node; node="$(prompt_node)"; "$SCRIPT_DIR/relay/rollback_mesh.sh" "$node" "$INVENTORY"; }
+run_prune_node()       { local node; node="$(prompt_node)"; "$SCRIPT_DIR/prune-node/prune_node.sh" "$node" "$INVENTORY"; }
 run_remove_node()      { local node; node="$(prompt_node)"; "$SCRIPT_DIR/remove-node/remove_node.sh" "$node" "$INVENTORY"; }
 run_cert_setup()       { "$SCRIPT_DIR/certs/setup_cdn_cert.sh" "$INVENTORY"; }
 run_cert_destroy()     { "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY"; }
@@ -73,6 +75,7 @@ show_menu() {
     echo "  7) Sync subscriptions to Caddy"
     echo "  8) Deploy/update Caddy (subscription server)"
     echo "  9) Rollback relay config  - one node"
+    echo "  110) Prune remote node     - keep inventory entry"
     echo "  109) Remove a node (decommission)"
     echo " 1103) Set up CDN certificate (CloudFront)"
     echo " 1749) Destroy CDN certificate (CloudFront)"
@@ -94,6 +97,7 @@ interactive_menu() {
             7) run_subs_sync ;        pause ;;
             8) run_deploy_caddy ;     pause ;;
             9) run_rollback ;         pause ;;
+            110) run_prune_node ;      pause ;;
             109) run_remove_node ;      pause ;;
             1109) run_cert_setup ;      pause ;;
             1749) run_cert_destroy ;    pause ;;
@@ -122,6 +126,7 @@ case "$CMD" in
     subs-generate)    "$SCRIPT_DIR/subs/generate_subscriptions.sh" "$INVENTORY" ;;
     subs-sync)        "$SCRIPT_DIR/subs/sync_subscriptions.sh" "$INVENTORY" ;;
     rollback)         "$SCRIPT_DIR/relay/rollback_mesh.sh" "${1:?node name required}" "$INVENTORY" ;;
+    prune-node)       "$SCRIPT_DIR/prune-node/prune_node.sh" "${1:?node name required}" "$INVENTORY" "${2:-}" "${3:-}" ;;
     remove-node)      "$SCRIPT_DIR/remove-node/remove_node.sh" "${1:?node name required}" "$INVENTORY" ;;
     cert-setup)       "$SCRIPT_DIR/certs/setup_cdn_cert.sh" "$INVENTORY" ;;
     cert-destroy)     "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY" ;;
