@@ -1,0 +1,20 @@
+# Static across every node - never regenerated per inventory change.
+# Host networking means the container just binds whatever ports
+# config/haproxy.cfg tells it to; only that file changes when the
+# inventory changes.
+services:
+  xray-relay:
+    image: haproxy:alpine
+    container_name: xray-relay
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 64m
+    cpus: 0.20

@@ -1,0 +1,29 @@
+# Static across any caddy_host - uses relative paths (like the relay/xray
+# composes), so this file never needs per-deployment templating.
+# TODO: set image tags as parameter
+services:
+  caddy-subs:
+    image: caddy:2-alpine
+    container_name: caddy-subs
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./subs:/srv/subs:ro
+      - caddy_data:/data
+      - caddy_logs:/var/log/caddy
+    env_file:
+      - .env
+    environment:
+      - ORIGIN_VERIFY_SECRET
+      - SUB_DOMAIN
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  caddy_data:
+  caddy_logs:
