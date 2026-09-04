@@ -156,4 +156,56 @@ To roll back HAProxy on one node:
 
 - The scripts are designed as push-model deploys from the local machine.
 - Logging goes to stderr in shared helpers so command substitution remains safe.
-- The repo currently contains generated and uncommitted content; review local changes before committing inventory or subscription artifacts.
+ 
+## Example 3-node network
+
+Simple view of a 3-server setup:
+
+How to read it:
+
+- `CloudFront / Caddy`: gives the client its subscription file
+- `direct`: client connects straight to that node's `direct_port`
+- `relay`: client connects to an entry node host on the relay port assigned to the target peer node
+
+For `inventory.3node.json`:
+
+- `server1` is the input node because it has `is_relay_entry: true`
+- `server2` and `server2` are regular mesh nodes
+- users get direct links to all visible nodes
+- users also get relay links `via server1` for every peer of `server1`
+- more generally, every relay entry node can communicate with all other nodes through its per-peer relay listeners
+
+Mermaid version for GitHub rendering:
+
+```mermaid
+flowchart TD
+    A[Client app] --> B[Subscription URL]
+    B --> C[CloudFront CDN]
+    C --> D[Caddy on subscription host]
+    D --> E[Generated subscriptions]
+
+    E --> F[Direct link: server1]
+    E --> G[Direct link: server2]
+    E --> H[Direct link: server3]
+    E --> I[Relay links via server1]
+
+    F --> K[server1]
+    G --> L[server2]
+    H --> M[server3]
+    I --> N[  to server2]
+    I --> O[  to server3]
+
+    subgraph Mesh relay listeners
+        P[server1]
+        Q[server2]
+        R[server3]
+    end
+
+    P -->|8444| Q
+    P -->|8445| R
+    Q -->|8443| P
+    Q -->|8445| R
+    R -->|8443| P
+    R -->|8444| Q
+```
+
