@@ -1,0 +1,64 @@
+# Subscription serving endpoint.
+# CloudFront terminates TLS; Caddy listens on 8080 (internal only).
+# Origin pull verified via X-Origin-Verify header (shared secret).
+#
+# Env vars required at runtime (set in compose.yml / .env):
+#   ORIGIN_VERIFY_SECRET  - matches CloudFront custom header value
+#   SUB_DOMAIN            - e.g. sub.example.com
+
+{
+    # Disable Caddy's own ACME - TLS is handled by CloudFront
+    auto_https off
+    admin off
+}
+
+:8080 {
+    # Access log at site level (log directive cannot be inside handle blocks)
+    log {
+        output file /var/log/caddy/sub_access.log {
+            roll_size 10mb
+            roll_keep 7
+        }
+        format filter {
+            wrap json
+            fields {
+                request>uri replace "^/([0-9a-f]{40})" "[token-hash-logged-separately]"
+            }
+        }
+    }
+
+    # ---- healthcheck (bypasses origin check) ----
+    respond /healthz 200
+
+    # ---- block anything not routed through CloudFront ----
+    @bad_origin {
+        not header X-Origin-Verify {$ORIGIN_VERIFY_SECRET}
+    }
+    respond @bad_origin 403
+
+    # ---- subscription endpoint: /<token> ----
+    @sub_request {
+        path_regexp sub_token ^/([0-9a-f]{40})$
+        header_regexp ua User-Agent (v2rayTun|v2rayNG|Hiddify|clash|mihomo|sing-box|nekoray|streisand|Shadowrocket|Quantumult|Stash|INCY)
+    }
+
+    handle @sub_request {
+        root * /srv/subs
+        rewrite /{re.sub_token.1}/sub.b64
+
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        header X-Content-Type-Options "nosniff"
+        header Content-Type "text/plain; charset=utf-8"
+
+        file_server
+    }
+
+    # ---- per-IP rate limit on subscription path ----
+    # Caddy does not ship a built-in rate_limit directive; this is handled
+    # upstream by CloudFront (see cloudfront_setup.md WAF rate rule).
+    # If you add caddy-rate-limit plugin: uncomment below.
+    # rate_limit {remote_host} 10r/m
+
+    # ---- everything else -> 404 (no directory listing, no 301) ----
+    respond 404
+}

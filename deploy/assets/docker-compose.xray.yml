@@ -1,0 +1,64 @@
+# Static across every node - identical on every host. VLESS_PORT is resolved
+# by docker compose itself from the .env file that sits alongside this file
+# (rendered per-node from inventory.json), so this file never changes.
+# TODO: set image tags as parameter
+networks:
+  xray-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+
+services:
+  adguard-home:
+    image: adguard/adguardhome:latest
+    container_name: adguard-home
+    restart: always
+    volumes:
+      - ./adguard/work:/opt/adguardhome/work
+      - ./adguard/conf:/opt/adguardhome/conf
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      xray-net:
+        ipv4_address: 172.29.0.10
+
+  warp:
+    image: caomingjun/warp
+    container_name: warp
+    restart: always
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - WARP_SLEEP=2
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+    networks:
+      - xray-net
+
+  xray:
+    image: teddysun/xray:latest
+    container_name: xray
+    restart: always
+    env_file: .env
+    ports:
+      - "${VLESS_PORT}:${VLESS_PORT}"
+      - "127.0.0.1:10085:10085"
+      - "127.0.0.1:9091:9091"
+    volumes:
+      - ./config:/etc/xray
+      - ./logs:/var/log/xray
+      - ./entrypoint.sh:/entrypoint.sh:ro
+      - ./stats.py:/opt/xray-node/stats.py:ro
+    entrypoint: /entrypoint.sh
+    depends_on:
+      - warp
+      - adguard-home
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
+    networks:
+      - xray-net

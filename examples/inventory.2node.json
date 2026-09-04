@@ -1,0 +1,38 @@
+{
+  "_comment": "Relay port for reaching a node is always relay_port_base + node.id, the SAME on every other node - deterministic and collision-free as nodes are added. id is permanent once assigned; never reuse an id after removing a node.",
+  "relay_port_base": 8442,
+  "resolvers": {
+    "dns1": "1.1.1.1",
+    "dns2": "8.8.8.8",
+    "hold_valid": "10s"
+  },
+  "subs": {
+    "domain": "sub.example.com",
+    "zone_domain": "example.com",
+    "caddy_host": "suomi.example.com",
+    "caddy_deploy_dir": "/opt/caddy-subs",
+    "ssh_user": "root",
+    "ssh_key": "~/.ssh/my_custom_key",
+    "sub_secret": "",
+    "origin_verify_secret": ""
+  },
+  "xray": {
+    "reality": {
+      "private_key": "",
+      "public_key": "",
+      "short_id": "891f7782a08e5aae",
+      "sni": "www.googletagmanager.com"
+    },
+    "dns": {
+      "dns1": "172.29.0.10",
+      "dns2": "94.140.14.14"
+    },
+    "users": [
+      { "uuid": "8cebfbbb-4ef8-4d5a-8f48-546ee58f49ec", "email": "demo_user", "hidden_nodes": ["suomi"] }
+    ]
+  },
+  "nodes": [
+    { "id": 1, "name": "suomi",     "friendly_name": "Finland",   "host": "suomi.example.com",     "direct_port": 443, "ssh_user": "root", "ssh_key": "~/.ssh/my_custom_key", "is_relay_entry": true },
+    { "id": 2, "name": "frankfurt", "friendly_name": "Germany",   "host": "frankfurt.example.com", "direct_port": 443, "ssh_user": "root", "ssh_key": "~/.ssh/my_custom_key", "is_relay_entry": false }
+  ]
+}
