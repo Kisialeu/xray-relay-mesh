@@ -58,6 +58,13 @@ deploy_one() {
     if [ "$rc" -eq 0 ]; then
         haproxy_ensure_compose "$host" "$RELAY_DEPLOY_DIR" "$COMPOSE_FILE" || rc=1
         haproxy_apply "$host" "$RELAY_DEPLOY_DIR" "$tmp_cfg" || rc=1
+        if [ "$rc" -eq 0 ] && [ "$(inv_stats_expose_haproxy "$INVENTORY")" = "true" ]; then
+            haproxy_apply_stats_firewall \
+                "$host" \
+                "$(inv_stats_public_port "$INVENTORY")" \
+                "$(inv_stats_allowed_sources "$INVENTORY")" || rc=1
+            haproxy_check_stats_listener "$host" "$(inv_stats_public_port "$INVENTORY")" || rc=1
+        fi
     fi
 
     if [ "$rc" -ne 0 ]; then

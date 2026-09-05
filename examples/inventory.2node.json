@@ -12,6 +12,19 @@
       "dns2": "8.8.8.8",
       "hold_valid": "10s"
    },
+   "stats": {
+      "node_port": 9091,
+      "public_port": 9092,
+      "web_port": 9093,
+      "master_node": "suomi",
+      "expose_via_haproxy": true,
+      "token": "replace-with-random-secret",
+      "allowed_sources": ["203.0.113.10/32"],
+      "postgres_port": 55432,
+      "postgres_password": "replace-with-random-secret",
+      "rate_limit_period": "60s",
+      "rate_limit_requests": 60
+   },
    "subs": {
       "domain": "sub.example.com",
       "zone_domain": "example.com",

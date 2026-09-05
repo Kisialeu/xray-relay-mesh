@@ -8,6 +8,7 @@ render_xray_env() {
     local file="$1" node="$2"
     local port host priv pub short_id sni
     local xray_img warp_img adguard_img
+    local stats_node_port
     port=$(inv_node_field "$file" "$node" direct_port)
     host=$(inv_node_field "$file" "$node" host)
     priv=$(inv_xray_private_key "$file")
@@ -19,6 +20,7 @@ render_xray_env() {
     xray_img=$(inv_image_xray "$file")
     warp_img=$(inv_image_warp "$file")
     adguard_img=$(inv_image_adguard "$file")
+    stats_node_port=$(inv_stats_node_port "$file")
 
     cat << EOF
 VLESS_PORT=${port}
@@ -30,6 +32,7 @@ REALITY_SNI=${sni}
 XRAY_IMAGE=${xray_img}
 WARP_IMAGE=${warp_img}
 ADGUARD_IMAGE=${adguard_img}
+STATS_NODE_PORT=${stats_node_port}
 EOF
 }
 

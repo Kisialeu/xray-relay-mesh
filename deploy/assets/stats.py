@@ -1,10 +1,10 @@
 import subprocess
 import json
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Tiny HTTP wrapper around the local Xray management API.
-# The container exposes this on port 9091 so external monitoring can fetch
-# stats without needing direct access to Xray's gRPC/API port.
+# Docker controls external exposure. Keep the Xray gRPC/API port private.
 
 def run(cmd):
     # Xray's CLI prints JSON on success. Return an empty object if the command
@@ -17,6 +17,15 @@ def run(cmd):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/health":
+            body = b'{"ok":true}\n'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", len(body))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # /online returns the currently online users; every other path returns
         # cumulative user traffic counters matching Xray's "user>>>" stat names.
         if self.path == "/online":
@@ -37,4 +46,4 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 # Bind all interfaces inside the container; Docker controls external exposure.
-HTTPServer(("0.0.0.0", 9091), Handler).serve_forever()
+HTTPServer((os.environ.get("STATS_LISTEN", "0.0.0.0"), 9091), Handler).serve_forever()

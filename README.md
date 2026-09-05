@@ -5,6 +5,7 @@
 - `deploy/` provisions and updates Xray on each node
 - `relay/` renders and deploys per-node HAProxy relay configs
 - `subs/` generates per-user subscription files and syncs them to a Caddy host
+- `stats/` polls per-node Xray counters through authenticated HAProxy endpoints and serves a small UI/API
 - `certs/` creates and tears down the AWS CloudFront + ACM + Route53 setup used in front of the subscription server
 - `mesh.sh` is the single entrypoint for operators
 
@@ -28,6 +29,7 @@ deploy/                      Xray deployment
 relay/                       HAProxy mesh deployment and rollback
 subs/                        Subscription generation and sync
 caddy/                       Caddy subscription server deployment
+stats/                       Central stats UI/API
 certs/                       AWS CDN setup and teardown
 remove-node/                 Inventory decommission helper
 examples/                    Example inventory files
@@ -125,6 +127,8 @@ The menu exposes the operational flow:
 ./mesh.sh remove-node <node_name>
 ./mesh.sh cert-setup
 ./mesh.sh cert-destroy
+./mesh.sh stats
+./mesh.sh deploy-stats
 ```
 
 To use a different inventory file:

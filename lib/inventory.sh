@@ -73,6 +73,72 @@ inv_validate() {
         return 1
     fi
 
+    if [ "$(inv_stats_expose_haproxy "$file")" = "true" ]; then
+        local stats_port stats_token stats_rate
+        local stats_master stats_pg_password
+        stats_port=$(inv_stats_public_port "$file")
+        stats_token=$(inv_stats_token "$file")
+        stats_rate=$(inv_stats_rate_limit_requests "$file")
+        stats_master=$(inv_stats_master_node "$file")
+        stats_pg_password=$(inv_stats_postgres_password "$file")
+
+        jq -e --argjson port "$stats_port" '$port >= 1 and $port <= 65535' "$file" >/dev/null 2>&1 \
+            || { error "stats.public_port must be in range 1-65535"; return 1; }
+        jq -e --argjson rate "$stats_rate" '$rate > 0' "$file" >/dev/null 2>&1 \
+            || { error "stats.rate_limit_requests must be a positive number"; return 1; }
+        if [ -z "$stats_token" ]; then
+            error "stats.expose_via_haproxy=true requires stats.token"
+            return 1
+        fi
+        if [ -z "$stats_master" ]; then
+            error "stats.master_node is required"
+            return 1
+        fi
+        if ! inv_node_exists "$file" "$stats_master"; then
+            error "stats.master_node not found: $stats_master"
+            return 1
+        fi
+        if [ -z "$stats_pg_password" ]; then
+            error "stats.postgres_password is required"
+            return 1
+        fi
+        if ! printf '%s' "$stats_token" | grep -Eq '^[A-Za-z0-9._~:-]{24,}$'; then
+            error "stats.token must be at least 24 URL/header-safe characters"
+            return 1
+        fi
+        if ! printf '%s' "$stats_pg_password" | grep -Eq '^[A-Za-z0-9._~:-]{24,}$'; then
+            error "stats.postgres_password must be at least 24 URL/header-safe characters"
+            return 1
+        fi
+        local bad_source
+        bad_source=$(jq -r '
+            .stats.allowed_sources // []
+            | .[]
+            | select(test("^([0-9]{1,3}\\.){3}[0-9]{1,3}(/[0-9]{1,2})?$") | not)
+        ' "$file")
+        if [ -n "$bad_source" ]; then
+            error "stats.allowed_sources currently supports IPv4 CIDR sources only: $bad_source"
+            return 1
+        fi
+
+        local stats_collide_direct stats_collide_relay
+        stats_collide_direct=$(jq -r --argjson port "$stats_port" '
+            .nodes[] | select(.direct_port == $port) | .name
+        ' "$file")
+        if [ -n "$stats_collide_direct" ]; then
+            error "stats.public_port collides with direct_port on node(s): $stats_collide_direct"
+            return 1
+        fi
+
+        stats_collide_relay=$(jq -r --argjson base "$base" --argjson port "$stats_port" '
+            .nodes[] | select((.id + $base) == $port) | .name
+        ' "$file")
+        if [ -n "$stats_collide_relay" ]; then
+            error "stats.public_port collides with relay port for node(s): $stats_collide_relay"
+            return 1
+        fi
+    fi
+
     return 0
 }
 
@@ -101,6 +167,17 @@ inv_node_field() {
 # ssh_user/ssh_key are required per node (enforced by inv_validate) - no global fallback.
 inv_node_ssh_user() { inv_node_field "$1" "$2" ssh_user; }
 inv_node_ssh_key()  { inv_node_field "$1" "$2" ssh_key; }
+inv_stats_node_port() { jq -r '.stats.node_port // 9091' "$1"; }
+inv_stats_public_port() { jq -r '.stats.public_port // 9092' "$1"; }
+inv_stats_web_port() { jq -r '.stats.web_port // 9093' "$1"; }
+inv_stats_master_node() { jq -r '.stats.master_node // ""' "$1"; }
+inv_stats_postgres_port() { jq -r '.stats.postgres_port // 55432' "$1"; }
+inv_stats_postgres_password() { jq -r '.stats.postgres_password // ""' "$1"; }
+inv_stats_token() { jq -r '.stats.token // ""' "$1"; }
+inv_stats_expose_haproxy() { jq -r '.stats.expose_via_haproxy // false' "$1"; }
+inv_stats_rate_limit_period() { jq -r '.stats.rate_limit_period // "60s"' "$1"; }
+inv_stats_rate_limit_requests() { jq -r '.stats.rate_limit_requests // 60' "$1"; }
+inv_stats_allowed_sources() { jq -r '.stats.allowed_sources // [] | join(" ")' "$1"; }
 
 # relay port used mesh-wide to reach $name = relay_port_base + $name's id.
 inv_relay_port() {
@@ -182,3 +259,9 @@ inv_subs_origin_verify_secret() { jq -r '.subs.origin_verify_secret // ""' "$1";
 inv_image_xray()    { jq -r '.images.xray // "teddysun/xray:latest"' "$1"; }
 inv_image_warp()    { jq -r '.images.warp // "caomingjun/warp:latest"' "$1"; }
 inv_image_adguard() { jq -r '.images.adguard // "adguard/adguardhome:latest"' "$1"; }
+
+# ---- push/fallback ingest (see inventory.json "stats" block) ----
+inv_stats_ingest_port()       { jq -r '.stats.ingest_port // 9094' "$1"; }
+inv_stats_push_enabled()      { jq -r '.stats.push_enabled // false' "$1"; }
+inv_stats_push_interval()     { jq -r '.stats.push_interval // 15' "$1"; }
+inv_stats_pull_healthy_ttl()  { jq -r '.stats.pull_healthy_ttl // 45' "$1"; }

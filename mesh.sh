@@ -18,6 +18,8 @@
 #   relay-mesh/mesh.sh remove-node <name>        decommission a node
 #   relay-mesh/mesh.sh cert-setup                set up CDN cert (from inventory.json's subs block)
 #   relay-mesh/mesh.sh cert-destroy               tear down CDN cert
+#   relay-mesh/mesh.sh stats                     open SSH tunnel to central stats UI/API
+#   relay-mesh/mesh.sh deploy-stats              deploy central stats UI/API to stats.master_node
 #
 # Env:
 #   INVENTORY   - inventory.json path (default: relay-mesh/inventory.json)
@@ -61,6 +63,8 @@ run_prune_node()       { local node; node="$(prompt_node)"; "$SCRIPT_DIR/prune-n
 run_remove_node()      { local node; node="$(prompt_node)"; "$SCRIPT_DIR/remove-node/remove_node.sh" "$node" "$INVENTORY"; }
 run_cert_setup()       { "$SCRIPT_DIR/certs/setup_cdn_cert.sh" "$INVENTORY"; }
 run_cert_destroy()     { "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY"; }
+run_stats()            { "$SCRIPT_DIR/stats/tunnel_stats.sh" "$INVENTORY"; }
+run_deploy_stats()     { "$SCRIPT_DIR/stats/deploy_stats.sh" "$INVENTORY"; }
 
 show_menu() {
     echo ""
@@ -79,6 +83,8 @@ show_menu() {
     echo "  109) Remove a node (decommission)"
     echo " 1103) Set up CDN certificate (CloudFront)"
     echo " 1749) Destroy CDN certificate (CloudFront)"
+    echo "  10) Open central stats UI/API tunnel"
+    echo "  11) Deploy central stats UI/API"
 
     echo "  0) Exit"
     echo "================================================"
@@ -101,6 +107,8 @@ interactive_menu() {
             109) run_remove_node ;      pause ;;
             1109) run_cert_setup ;      pause ;;
             1749) run_cert_destroy ;    pause ;;
+            10) run_stats ;;
+            11) run_deploy_stats ; pause ;;
 
             0) exit 0 ;;
             *) echo "Invalid option: $choice" ;;
@@ -130,6 +138,8 @@ case "$CMD" in
     remove-node)      "$SCRIPT_DIR/remove-node/remove_node.sh" "${1:?node name required}" "$INVENTORY" ;;
     cert-setup)       "$SCRIPT_DIR/certs/setup_cdn_cert.sh" "$INVENTORY" ;;
     cert-destroy)     "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY" ;;
+    stats)            "$SCRIPT_DIR/stats/tunnel_stats.sh" "$INVENTORY" ;;
+    deploy-stats)     "$SCRIPT_DIR/stats/deploy_stats.sh" "$INVENTORY" ;;
     *)
         echo "Unknown command: $CMD" >&2
         echo "Run with no arguments for the interactive menu, or see this script's header comment for subcommands." >&2

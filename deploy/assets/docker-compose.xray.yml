@@ -46,7 +46,7 @@ services:
     ports:
       - "${VLESS_PORT}:${VLESS_PORT}"
       - "127.0.0.1:10085:10085"
-      - "127.0.0.1:9091:9091"
+      - "127.0.0.1:${STATS_NODE_PORT:-9091}:9091"
     volumes:
       - ./config:/etc/xray
       - ./logs:/var/log/xray

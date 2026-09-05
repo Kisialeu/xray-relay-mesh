@@ -39,6 +39,19 @@ Then edit `inventory.json` and replace the example values.
 - `dns1`, `dns2`: upstream resolvers
 - `hold_valid`: HAProxy DNS cache duration
 
+`stats`
+
+- Settings for central stats polling.
+- `node_port`: node-local stats HTTP port, bound to `127.0.0.1`
+- `public_port`: public HAProxy stats port
+- `web_port`: central stats UI/API host-loopback port on the master node
+- `master_node`: node that runs the central stats app and Postgres
+- `expose_via_haproxy`: whether relay HAProxy exposes authenticated stats
+- `token`: required `X-Stats-Token` value for HAProxy stats access
+- `allowed_sources`: optional list of central stats host source CIDRs allowed by HAProxy
+- `postgres_port`, `postgres_password`: Postgres sidecar settings on the master node
+- `rate_limit_period`, `rate_limit_requests`: per-source HAProxy request limit
+
 `subs`
 
 - Settings for subscription publishing and the Caddy host.
@@ -164,4 +177,3 @@ Or scripted:
 ./mesh.sh subs-generate
 ./mesh.sh subs-sync
 ```
-
