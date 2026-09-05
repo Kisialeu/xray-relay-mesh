@@ -13,7 +13,11 @@ SSH_KEY_OVERRIDE="${SSH_KEY:-}"
 : "${XRAY_DEPLOY_DIR:=/opt/xray-node}"
 : "${MESH_WEBHOOK_URL:=}"   # optional ntfy.sh/Slack webhook, same convention as probe_subscriptions.sh
 
+# Exposed to scripts that source this file (they read $MESH_DIR for the
+# default inventory path). Export so the value is inherited and shellcheck
+# (SC2034) recognises the cross-file usage.
 MESH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export MESH_DIR
 
 # All logging goes to stderr - never stdout, so a function that both logs
 # and returns a value via $(...) (e.g. get_zone_id in the certs scripts)
@@ -36,12 +40,17 @@ alert() {
 # Expands a leading "~/" or "~" (inventory.json stores portable paths;
 # ssh -i needs them expanded, since it never sees a shell to do it itself).
 _mesh_expand_tilde() {
+    # shellcheck disable=SC2088  # '~/' is matched literally; the escaped
+    # ${1#\~/} strips a leading literal tilde - tilde-in-quotes is intentional.
     case "$1" in
-        "~/"*) printf '%s' "$HOME/${1#\~/}" ;;
-        "~")   printf '%s' "$HOME" ;;
-        *)     printf '%s' "$1" ;;
+         "~/"*) printf '%s' "${HOME%/}/${1#\~/}" ;;
+         "~")   printf '%s' "$HOME" ;;
+         *)     printf '%s' "$1" ;;
     esac
 }
+
+
+
 
 # Resolves SSH_USER and SSH_KEY for node $2: an explicitly-exported
 # SSH_USER/SSH_KEY always wins (captured as *_OVERRIDE before any per-node
@@ -175,7 +184,8 @@ scp_dir_to() {
 # Checks every step; never leaves $3 half-written on failure.
 mesh_upload_file() {
     local host="$1" local_path="$2" remote_path="$3"
-    local tmp_path="/tmp/mesh_upload_$$_$(basename "$remote_path")"
+    local tmp_path
+    tmp_path="/tmp/mesh_upload_$$_$(basename "$remote_path")"
 
     scp_to "$host" "$local_path" "$tmp_path" \
         || { error "$host: failed to upload $(basename "$remote_path") to /tmp"; return 1; }
@@ -195,7 +205,8 @@ mesh_upload_file() {
 # under $3 not present in $2 are left untouched (merge, not mirror).
 mesh_upload_dir_merge() {
     local host="$1" local_dir="$2" dest_dir="$3"
-    local tmp_dir="/tmp/mesh_upload_$$_$(basename "$dest_dir")"
+    local tmp_dir
+    tmp_dir="/tmp/mesh_upload_$$_$(basename "$dest_dir")"
 
     ssh_run "$host" "rm -rf '$tmp_dir'" >/dev/null 2>&1 || true
     scp_dir_to "$host" "$local_dir" "$tmp_dir" \

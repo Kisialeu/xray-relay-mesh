@@ -6,7 +6,8 @@
 
 sync_subs_to_caddy() {
     local sub_dir="$1" sub_server="$2" caddy_deploy_dir="$3"
-    local ssh_opt="$(mesh_ssh_opt)"
+    local ssh_opt
+    ssh_opt="$(mesh_ssh_opt)"
 
     info "Syncing subscription files to ${sub_server}:${caddy_deploy_dir}/subs/ ..."
     for user_dir in "$sub_dir"/*/; do
@@ -26,7 +27,8 @@ sync_subs_to_caddy() {
 
 reload_caddy() {
     local sub_server="$1" caddy_deploy_dir="$2"
-    local ssh_opt="$(mesh_ssh_opt)"
+    local ssh_opt
+    ssh_opt="$(mesh_ssh_opt)"
 
     if ssh $ssh_opt "${SSH_USER}@${sub_server}" \
         "docker compose -f ${caddy_deploy_dir}/compose.yml ps --quiet --status running caddy-subs 2>/dev/null | grep -q ." 2>/dev/null

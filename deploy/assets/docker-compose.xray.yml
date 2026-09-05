@@ -1,7 +1,6 @@
 # Static across every node - identical on every host. VLESS_PORT is resolved
 # by docker compose itself from the .env file that sits alongside this file
 # (rendered per-node from inventory.json), so this file never changes.
-# TODO: set image tags as parameter
 networks:
   xray-net:
     driver: bridge
@@ -11,7 +10,7 @@ networks:
 
 services:
   adguard-home:
-    image: adguard/adguardhome:latest
+    image: ${ADGUARD_IMAGE:-adguard/adguardhome:latest}
     container_name: adguard-home
     restart: always
     volumes:
@@ -24,7 +23,7 @@ services:
         ipv4_address: 172.29.0.10
 
   warp:
-    image: caomingjun/warp
+    image: ${WARP_IMAGE:-caomingjun/warp:latest}
     container_name: warp
     restart: always
     devices:
@@ -40,7 +39,7 @@ services:
       - xray-net
 
   xray:
-    image: teddysun/xray:latest
+    image: ${XRAY_IMAGE:-teddysun/xray:latest}
     container_name: xray
     restart: always
     env_file: .env

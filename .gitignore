@@ -1,6 +1,11 @@
 # Subs dir
  subscriptions/
 
+AGENTS.md
+PLAN.md
+Modelfile.
+*agent*.sh
+
 # inventory.json
 inventory.json
 
