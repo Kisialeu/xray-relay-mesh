@@ -171,3 +171,14 @@ inv_subs_ssh_user()        { jq -r '.subs.ssh_user // ""' "$1"; }
 inv_subs_ssh_key()         { jq -r '.subs.ssh_key // ""' "$1"; }
 inv_subs_secret()          { jq -r '.subs.sub_secret // ""' "$1"; }
 inv_subs_origin_verify_secret() { jq -r '.subs.origin_verify_secret // ""' "$1"; }
+
+# ---- images (see inventory.json "images" block) ----
+# Single source of truth for the container image refs the xray stack pulls.
+# Default to :latest; override per-inventory by setting images.xray / images.warp
+# / images.adguard to a pinned tag or digest (e.g. "teddysun/xray:26.7.11" or
+# "teddysun/xray@sha256:<digest>") - that is the recommended way to make a
+# deploy reproducible. These are rendered into the per-node .env, so a change
+# here reaches every node on the next deploy/deploy_nodes run.
+inv_image_xray()    { jq -r '.images.xray // "teddysun/xray:latest"' "$1"; }
+inv_image_warp()    { jq -r '.images.warp // "caomingjun/warp:latest"' "$1"; }
+inv_image_adguard() { jq -r '.images.adguard // "adguard/adguardhome:latest"' "$1"; }

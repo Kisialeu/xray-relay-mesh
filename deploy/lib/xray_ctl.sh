@@ -46,11 +46,36 @@ xray_check_bbr() {
 
 xray_container_running() { mesh_container_running "$1" "$2"; }
 
+# A valid deployment requires every service in the compose stack, not only
+# the xray container. This makes an unchanged deploy self-healing after a
+# host reboot or a manually stopped dependency.
+xray_stack_running() {
+    local host="$1" service
+    for service in adguard-home warp xray; do
+        xray_container_running "$host" "$service" || return 1
+    done
+}
+
 xray_start() {
     local host="$1" deploy_dir="$2"
     ssh_run "$host" "cd ${deploy_dir} && docker compose pull && docker compose down --remove-orphans && docker compose up -d" || return 1
     sleep 3
-    xray_container_running "$host" "xray"
+    xray_stack_running "$host"
+}
+
+# Starts only the stopped or absent services. Unlike xray_start(), this keeps
+# already-running containers intact when the rendered deployment is unchanged.
+xray_ensure_running() {
+    local host="$1" deploy_dir="$2"
+    if xray_stack_running "$host"; then
+        info "$host: xray stack unchanged and running - no-op"
+        return 0
+    fi
+
+    info "$host: xray stack unchanged but a service is not running - starting it"
+    ssh_run "$host" "cd ${deploy_dir} && docker compose up -d --remove-orphans" || return 1
+    sleep 3
+    xray_stack_running "$host"
 }
 
 xray_restore_backup() {
@@ -87,7 +112,8 @@ xray_apply() {
     sig=$(find "$stage_dir" -type f -exec sha256sum {} + | awk '{print $1}' | sort | sha256sum | awk '{print $1}')
     remote_sig=$(ssh_run "$host" "cat ${marker} 2>/dev/null" || true)
     if [ "$remote_sig" = "$sig" ]; then
-        info "$host: xray stack unchanged - no-op"
+        xray_ensure_running "$host" "$deploy_dir" \
+            || { error "$host: xray stack did not become fully running"; return 1; }
         return 0
     fi
 

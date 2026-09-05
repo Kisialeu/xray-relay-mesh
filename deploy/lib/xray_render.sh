@@ -7,12 +7,18 @@
 render_xray_env() {
     local file="$1" node="$2"
     local port host priv pub short_id sni
+    local xray_img warp_img adguard_img
     port=$(inv_node_field "$file" "$node" direct_port)
     host=$(inv_node_field "$file" "$node" host)
     priv=$(inv_xray_private_key "$file")
     pub=$(inv_xray_public_key "$file")
     short_id=$(inv_xray_short_id "$file")
     sni=$(inv_xray_sni "$file")
+    # Container image refs - from the inventory "images" block (:latest by
+    # default; pin to a tag/digest there for reproducible deploys).
+    xray_img=$(inv_image_xray "$file")
+    warp_img=$(inv_image_warp "$file")
+    adguard_img=$(inv_image_adguard "$file")
 
     cat << EOF
 VLESS_PORT=${port}
@@ -21,6 +27,9 @@ REALITY_PRIVATE_KEY=${priv}
 REALITY_PUBLIC_KEY=${pub}
 REALITY_SHORT_ID=${short_id}
 REALITY_SNI=${sni}
+XRAY_IMAGE=${xray_img}
+WARP_IMAGE=${warp_img}
+ADGUARD_IMAGE=${adguard_img}
 EOF
 }
 
