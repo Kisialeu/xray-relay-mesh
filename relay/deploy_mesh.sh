@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push-model deploy: renders haproxy.cfg for one or all mesh nodes from
+# Renders haproxy.cfg for one or all mesh nodes from
 # inventory.json, validates remotely, applies idempotently, reloads.
 # Adding/removing a node = editing inventory.json only, no per-server edits.
 #

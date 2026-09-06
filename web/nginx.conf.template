@@ -1,0 +1,59 @@
+map $uri $stats_limit_key {
+    default "";
+    ~^/stats/api(?:/|$) $binary_remote_addr;
+}
+
+limit_req_zone $stats_limit_key zone=stats_api:10m rate=60r/m;
+
+server {
+    listen __STATS_WEB_BIND__:__STATS_WEB_PORT__ ssl;
+    server_name _;
+    server_tokens off;
+
+    ssl_certificate /etc/letsencrypt/live/__STATS_WEB_DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__STATS_WEB_DOMAIN__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    client_max_body_size 1m;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    location = /healthz {
+        auth_basic off;
+        default_type application/json;
+        return 200 '{"ok":true}\n';
+    }
+
+    location = /stats {
+        return 308 /stats/;
+    }
+
+    location /stats/ {
+        auth_basic "Xray Stats";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        limit_req zone=stats_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:__STATS_APP_PORT__/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Authorization "";
+        proxy_set_header X-Stats-Token "__STATS_API_TOKEN__";
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:__WEB_APP_PORT__;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+}

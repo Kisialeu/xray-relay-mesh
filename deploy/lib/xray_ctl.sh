@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Remote-side Xray node stack operations over SSH: host prep (docker,
-# docker compose plugin, BBR, deps), idempotent apply (push + restart only
+# docker compose plugin, BBR, deps), idempotent apply (config + restart only
 # on change), and rollback via a tar snapshot of the previous deploy dir.
 # deploy_dir (e.g. /opt/xray-node) is typically root-owned, so every write
 # under it goes through sudo - the ssh_user (e.g. a non-root "ubuntu") may

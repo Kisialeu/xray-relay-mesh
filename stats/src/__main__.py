@@ -1,11 +1,12 @@
 import logging
 import os
 import threading
-from http.server import ThreadingHTTPServer
+
+from waitress import serve
 
 from config import BIND, PORT, POLL_INTERVAL
 from db import DB_IS_POSTGRES, init_db
-from httpserver import Handler
+from httpserver import app
 from poller import poll_loop
 
 
@@ -19,7 +20,7 @@ def main():
                                         "postgres" if DB_IS_POSTGRES else "sqlite",
                                         BIND, PORT, POLL_INTERVAL)
     threading.Thread(target=poll_loop, daemon=True).start()
-    ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
+    serve(app, host=BIND, port=PORT, threads=8)
 
 
 if __name__ == "__main__":

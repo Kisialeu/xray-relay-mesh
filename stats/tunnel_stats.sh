@@ -20,11 +20,10 @@ inv_node_exists "$INVENTORY" "$MASTER_NODE" || { error "stats.master_node not fo
 
 HOST="$(inv_node_field "$INVENTORY" "$MASTER_NODE" host)"
 REMOTE_PORT="$(inv_stats_web_port "$INVENTORY")"
-TOKEN="$(inv_stats_token "$INVENTORY")"
 
 mesh_resolve_ssh "$INVENTORY" "$MASTER_NODE"
 
-url="http://127.0.0.1:${LOCAL_PORT}/?token=${TOKEN}"
+url="https://127.0.0.1:${LOCAL_PORT}/stats/xray"
 info "Opening SSH tunnel to stats master ${MASTER_NODE} (${HOST})"
 info "Open: ${url}"
 info "Press Ctrl-C to close the tunnel"

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Node - Xray Stats</title>
+  <link rel="stylesheet" href="/stats/static/stats.css">
+</head>
+<body>
+  <main class="shell narrow-shell">
+    <header class="topbar"><div class="brand-lockup"><a class="back-link" href="/stats/xray" aria-label="Back to dashboard">&lt;-</a><div><p class="eyebrow">NODE DETAIL</p><h1>Node</h1></div></div><span id="connection-state" class="status-pill pending">CONNECTING</span></header>
+    <section id="access-error" class="notice error hidden" role="alert"><strong>Statistics unavailable.</strong><span id="access-error-text">Provide the token in the URL or as an API header.</span></section>
+    <section class="metric-grid"><article class="metric-card accent-green"><span class="metric-label">Status</span><strong id="node-status">-</strong><span class="metric-note" id="node-status-note">-</span></article><article class="metric-card accent-amber"><span class="metric-label">Latency</span><strong id="node-latency">-</strong><span class="metric-note" id="node-last-poll">-</span></article><article class="metric-card accent-blue"><span class="metric-label">Total traffic</span><strong id="node-total">-</strong><span class="metric-note">recorded on node</span></article><article class="metric-card accent-purple"><span class="metric-label">Online users</span><strong id="node-online">-</strong><span class="metric-note"><span id="node-user-count">- users</span></span></article></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">ACCOUNT TRAFFIC</p><h2>Users on this node</h2></div><span class="panel-count">Upload <b id="node-up">-</b> / Download <b id="node-down">-</b></span></div><div class="table-wrap"><table><thead><tr><th>User</th><th>Total</th><th>Up</th><th>Down</th><th>Online</th><th>Activity</th><th>Last seen</th></tr></thead><tbody id="node-users-table"><tr><td colspan="7" class="empty">Loading node traffic...</td></tr></tbody></table></div></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">RECENT ACTIVITY</p><h2>Node traffic per poll</h2></div><span id="sample-count" class="panel-count">0 samples</span></div><div id="traffic-chart" class="traffic-chart" role="img" aria-label="Recent node traffic chart"></div><div class="chart-legend"><span><i class="legend-dot upload"></i>Upload</span><span><i class="legend-dot download"></i>Download</span></div></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">EXACT MEASUREMENTS</p><h2>Recent sample log</h2></div><span class="panel-count">Traffic delta per poll</span></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Upload</th><th>Download</th><th>Total</th></tr></thead><tbody id="node-samples-table"><tr><td colspan="4" class="empty">Loading samples...</td></tr></tbody></table></div></section>
+  </main>
+  <script src="/stats/static/stats.js"></script>
+  <script>window.initNodePage();</script>
+</body>
+</html>

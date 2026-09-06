@@ -5,13 +5,12 @@ from config import INVENTORY
 
 
 def load_inventory():
-    with INVENTORY.open() as f:
-        inv = json.load(f)
+    inv = load_raw_inventory()
     stats_cfg = inv.get("stats", {})
     master_node = stats_cfg.get("master_node", "")
     local_port = int(stats_cfg.get("node_port", 9091))
-    public_port = int(stats_cfg.get("public_port") or local_port)
-    node_token = os.environ.get("STATS_NODE_TOKEN") or stats_cfg.get("token", "")
+    ssh_user = os.environ.get("STATS_SSH_USER") or stats_cfg.get("ssh_user", "stats-poller")
+    ssh_port = int(os.environ.get("STATS_SSH_PORT", stats_cfg.get("ssh_port", 22)))
     nodes = []
     for node in inv.get("nodes", []):
         is_self = node["name"] == master_node
@@ -22,7 +21,21 @@ def load_inventory():
              "name": node["name"],
              "friendly_name": node.get("friendly_name") or node["name"],
              "host": host,
-             "port": local_port if is_self else int(node.get("stats_port") or public_port),
-             "token": "" if is_self else node.get("stats_token") or node_token,
+             "port": local_port,
+             "ssh_user": ssh_user,
+             "ssh_port": ssh_port,
          })
     return nodes
+
+
+def load_raw_inventory():
+    with INVENTORY.open() as f:
+        return json.load(f)
+
+
+def node_names():
+    return {node["name"] for node in load_raw_inventory().get("nodes", [])}
+
+
+def master_node():
+    return load_raw_inventory().get("stats", {}).get("master_node", "")

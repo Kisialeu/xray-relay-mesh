@@ -108,5 +108,6 @@ render_haproxy_cfg() {
             "$(inv_stats_rate_limit_period "$file")" \
             "$(inv_stats_rate_limit_requests "$file")" \
             "$allowed_sources"
+
     fi
 }

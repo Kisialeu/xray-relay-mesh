@@ -170,6 +170,7 @@ inv_node_ssh_key()  { inv_node_field "$1" "$2" ssh_key; }
 inv_stats_node_port() { jq -r '.stats.node_port // 9091' "$1"; }
 inv_stats_public_port() { jq -r '.stats.public_port // 9092' "$1"; }
 inv_stats_web_port() { jq -r '.stats.web_port // 9093' "$1"; }
+inv_stats_app_port() { jq -r '.stats.app_port // 9094' "$1"; }
 inv_stats_master_node() { jq -r '.stats.master_node // ""' "$1"; }
 inv_stats_postgres_port() { jq -r '.stats.postgres_port // 55432' "$1"; }
 inv_stats_postgres_password() { jq -r '.stats.postgres_password // ""' "$1"; }
@@ -259,9 +260,3 @@ inv_subs_origin_verify_secret() { jq -r '.subs.origin_verify_secret // ""' "$1";
 inv_image_xray()    { jq -r '.images.xray // "teddysun/xray:latest"' "$1"; }
 inv_image_warp()    { jq -r '.images.warp // "caomingjun/warp:latest"' "$1"; }
 inv_image_adguard() { jq -r '.images.adguard // "adguard/adguardhome:latest"' "$1"; }
-
-# ---- push/fallback ingest (see inventory.json "stats" block) ----
-inv_stats_ingest_port()       { jq -r '.stats.ingest_port // 9094' "$1"; }
-inv_stats_push_enabled()      { jq -r '.stats.push_enabled // false' "$1"; }
-inv_stats_push_interval()     { jq -r '.stats.push_interval // 15' "$1"; }
-inv_stats_pull_healthy_ttl()  { jq -r '.stats.pull_healthy_ttl // 45' "$1"; }
