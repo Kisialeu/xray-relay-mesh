@@ -88,8 +88,10 @@ ssh_run "$HOST" "
         sudo docker image rm \"\$image\" 2>/dev/null || true
     done
 
-    for volume in xray-stats_stats_postgres_data xray-web_web_letsencrypt caddy-subs_caddy_data caddy-subs_caddy_logs; do
-        sudo docker volume rm \"\$volume\" 2>/dev/null || true
+    for project in xray-node relay-node xray-stats xray-web caddy-subs; do
+        for volume in \$(sudo docker volume ls -q --filter \"label=com.docker.compose.project=\$project\"); do
+            sudo docker volume rm \"\$volume\" 2>/dev/null || true
+        done
     done
 
     if command -v iptables >/dev/null 2>&1; then

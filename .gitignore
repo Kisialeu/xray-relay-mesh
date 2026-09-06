@@ -80,6 +80,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+web/.htpasswd
 
 # Logs
 *.log

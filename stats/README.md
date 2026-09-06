@@ -64,7 +64,8 @@ Required inventory fields:
 ```
 
 The service uses SQLAlchemy ORM for database access. On startup it creates the
-fresh schema from `stats/src/models.py`; no legacy SQL migrations are applied.
+schema and any missing indexes from `stats/src/models.py`. It does not provide
+general schema migrations.
 
 Deploy the backend and Postgres to `stats.master_node` with Docker:
 
@@ -100,10 +101,11 @@ Open the deployed UI through an SSH tunnel:
 
 The command prints the local URL and keeps the tunnel open until `Ctrl-C`.
 
-Run locally without Docker for development:
+Run locally without Docker for development. Authentication is not required on
+the default loopback bind:
 
 ```bash
-STATS_API_TOKEN="$(openssl rand -hex 24)" ./stats/run_stats.sh ./inventory.json
+./stats/run_stats.sh ./inventory.json
 ```
 
 Useful environment variables:
@@ -113,9 +115,9 @@ Useful environment variables:
 - `STATS_API_TOKEN`: required when binding outside loopback
 - `STATS_POLL_INTERVAL`: polling interval in seconds, default `15`
 - `STATS_HTTP_TIMEOUT`: per-request timeout in seconds, default `5`
-- `STATS_RETENTION_DAYS`: sample history retention, default `60`
-- `STATS_ONLINE_WINDOW`: seconds since last activity to consider a user online, default `300`
-- `STATS_ACTIVE_DURATION`: continuous active seconds required before online, default `60`
+- `STATS_RETENTION_DAYS`: sample and poll history retention, default and maximum `90`
+- `STATS_ONLINE_WINDOW`: seconds since last activity to consider a user online, default `120`
+- `STATS_ACTIVE_DURATION`: continuous active seconds required before online, default `30`
 - `STATS_MIN_ACTIVITY_BYTES`: minimum bytes transferred during the continuous active period, default `1024`
 - `STATS_SSH_USER`: restricted node account, default `stats-poller`
 - `STATS_SSH_PORT`: SSH port, default `22`
@@ -132,10 +134,40 @@ Security notes:
 - Expose only HAProxy `stats.public_port`.
 - The deployment generates a separate master SSH key under `/opt/xray-stats/ssh`.
 - The deployment appends a restricted forced-command key to each node's `stats-poller` account.
-
 - Existing personal SSH keys are preserved.
 - Keep the web listener on loopback for SSH-tunnel access, or explicitly bind Nginx to a public interface and restrict the port at the host firewall.
-- The stats API token remains required for data endpoints; Nginx also rate-limits `/api/` requests.
+- The stats API token remains required for data endpoints. Nginx injects it
+  server-side and rate-limits `/api/` requests; the browser does not store or
+  propagate the token.
+- The Docker build context excludes the generated environment file, SSH key,
+  inventory, and PostgreSQL data. The deployed container receives a reduced
+  inventory containing only polling fields.
+
+`/api/health` returns HTTP 503 when PostgreSQL is unavailable, polling has not
+completed recently, or inventory loading fails. Deployment waits for the
+container health checks before reporting success.
+
+The dashboard and node/user detail pages support 1-hour, 24-hour, 7-day,
+30-day, and 90-day traffic ranges.
+`/api/traffic?seconds=<seconds>&bucket=<seconds>` returns bucketed upload,
+download, and successful-poll coverage. New deployments record every node poll
+in `poll_runs`, allowing charts to distinguish an idle interval from missing
+collector data. Historical samples created before this table existed have
+unknown coverage.
+
+Historical `samples` and `poll_runs` rows are deleted after the configured
+retention period, capped at 90 days. The `totals` and `prev` tables retain small
+operational counter baselines because deleting them would cause incorrect Xray
+counter deltas after cleanup; analytics never uses them for traffic outside the
+selected historical range.
+
+Switching the stats master does not copy PostgreSQL history or update external
+DNS. It requires an explicit acknowledgement and leaves the old PostgreSQL data
+untouched for recovery:
+
+```bash
+STATS_ALLOW_DISCONTINUOUS_HISTORY=1 ./stats/switch_master.sh <new-master> ./inventory.json
+```
 
 The statistics pages are served by this backend and are exposed externally
 under the authenticated `/stats/` namespace. User rows link to
@@ -144,9 +176,12 @@ aggregate traffic and a per-node breakdown from the existing `samples` table.
 Backend API routes remain available at
 `/stats/api/summary`, `/stats/api/nodes`, `/stats/api/users`,
 `/stats/api/nodes/<node>/users`, `/stats/api/nodes/<node>/history`, and the
-per-node or aggregate user history routes.
+per-node or aggregate user history routes. Period analytics are available at
+`/stats/api/traffic`, `/stats/api/nodes/<node>/analytics`, and
+`/stats/api/users/<user>/analytics`.
 
 Online status requires current traffic-counter activity for at least
 `STATS_ACTIVE_DURATION` seconds, at least `STATS_MIN_ACTIVITY_BYTES` transferred
 during that continuous period, and a `last_seen` timestamp within
-`STATS_ONLINE_WINDOW`. The raw node `/online` flag is not sufficient by itself.
+`STATS_ONLINE_WINDOW`. The node must be healthy and the raw node `/online`
+signal must also report the user.

@@ -34,6 +34,11 @@ OLD_MASTER="$(inv_stats_master_node "$INVENTORY")"
     error "new stats master is already the current master: $NEW_MASTER"
     exit 1
 }
+[ "${STATS_ALLOW_DISCONTINUOUS_HISTORY:-0}" = "1" ] || {
+    error "switching masters does not migrate PostgreSQL history"
+    error "set STATS_ALLOW_DISCONTINUOUS_HISTORY=1 to confirm this operation"
+    exit 1
+}
 
 tmp_inventory="$(mktemp)"
 trap 'rm -f "$tmp_inventory"' EXIT
@@ -42,6 +47,7 @@ inv_validate "$tmp_inventory"
 
 NEW_HOST="$(inv_node_field "$INVENTORY" "$NEW_MASTER" host)"
 OLD_HOST="$(inv_node_field "$INVENTORY" "$OLD_MASTER" host)"
+NEW_APP_PORT="$(inv_stats_app_port "$tmp_inventory")"
 info "Deploying new stats master: $NEW_MASTER ($NEW_HOST)"
 "$SCRIPT_DIR/deploy_stats.sh" "$tmp_inventory"
 "$SCRIPT_DIR/../web/deploy_web.sh" "$tmp_inventory"
@@ -49,6 +55,10 @@ info "Deploying new stats master: $NEW_MASTER ($NEW_HOST)"
 mesh_resolve_ssh "$tmp_inventory" "$NEW_MASTER"
 mesh_container_running "$NEW_HOST" xray-stats || {
     error "$NEW_MASTER: xray-stats container is not running; keeping current master"
+    exit 1
+}
+ssh_run "$NEW_HOST" "curl -fsS --max-time 5 'http://127.0.0.1:$NEW_APP_PORT/api/health' >/dev/null" || {
+    error "$NEW_MASTER: stats health check failed; keeping current master"
     exit 1
 }
 

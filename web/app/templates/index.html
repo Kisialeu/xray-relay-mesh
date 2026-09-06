@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="referrer" content="no-referrer">
+    <meta name="color-scheme" content="dark">
     <title>ride life</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -15,7 +16,7 @@
           --amber:   #ffaa00;
           --blue:    #4488ff;
           --red:     #ff4444;
-          --muted:   #555555;
+          --muted:   #7a7a7a;
           --white:   #cccccc;
           --font:    'JetBrains Mono','Cascadia Code','Fira Code','Courier New',monospace;
         }
@@ -28,15 +29,15 @@
         .dot-a        { background: #febc2e; }
         .dot-g        { background: #28c840; }
         #tb-label     { flex: 1; text-align: center; color: var(--muted); font-size: 12px; letter-spacing: .04em; }
-        #titlebar a   { color: var(--muted); display: flex; align-items: center; text-decoration: none; }
-        #titlebar a:hover { color: var(--white); }
-        #output       { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 18px 26px 8px; scroll-behavior: smooth; }
+        #output       { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 18px 26px 8px; }
         #output::-webkit-scrollbar       { width: 4px; }
         #output::-webkit-scrollbar-thumb { background: var(--border); }
         #input-row    { display: flex; align-items: center; padding: 10px 26px 12px; border-top: 1px solid var(--border); background: var(--bg); flex-shrink: 0; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
         #prompt-label { color: var(--green); white-space: nowrap; margin-right: 8px; user-select: none; font-weight: 700; font-size: 13px; }
         .prompt-host  { color: var(--green); }
         #cmd-input    { flex: 1; background: transparent; border: none; outline: none; color: var(--white); font-family: var(--font); font-size: 16px; caret-color: var(--green); -webkit-tap-highlight-color: transparent; }
+        #input-row:focus-within { border-top-color: var(--green); }
+        #cmd-input:disabled { cursor: not-allowed; opacity: .45; }
         .out-line     { margin: 1px 0; word-break: break-word; overflow-wrap: anywhere; }
         .out-blank    { min-height: 1.1em; }
         .c-green      { color: var(--green); }
@@ -55,8 +56,10 @@
         .help-grid    { display: grid; grid-template-columns: 150px 1fr; margin: 3px 0; gap: 0 8px; }
         .kv-grid      { display: grid; grid-template-columns: 130px 1fr; margin: 5px 0; gap: 0 12px; }
         .help-grid span, .kv-grid span { word-break: break-word; overflow-wrap: anywhere; min-width: 0; }
+        .noscript-message { color: var(--amber); padding: 12px 0; }
         .sr-only      { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
         @media (prefers-reduced-motion: no-preference) {
+          #output.ready { scroll-behavior: smooth; }
           @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
           .scanline { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: rgba(51,255,51,.025); pointer-events: none; animation: scanline 12s linear infinite; z-index: 999; }
           @keyframes fi { from { opacity: 0; } to { opacity: 1; } }
@@ -77,22 +80,17 @@
 <body>
 <div class="scanline" aria-hidden="true"></div>
 <div id="app">
-    <div id="titlebar" aria-hidden="true">
-        <div class="dots">
+    <header id="titlebar">
+        <div class="dots" aria-hidden="true">
             <div class="dot dot-r"></div>
             <div class="dot dot-a"></div>
             <div class="dot dot-g"></div>
         </div>
         <div id="tb-label">ride life - terminal</div>
-        <a href="/admin/sys" title="admin">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
-                <line x1="12" y1="2" x2="12" y2="12"/>
-            </svg>
-        </a>
+    </header>
+    <div id="output" role="log" aria-live="off" aria-label="Terminal output" aria-atomic="false">
+        <noscript><div class="noscript-message">JavaScript is required for the interactive terminal. No tracking or external resources are loaded.</div></noscript>
     </div>
-    <div id="output" role="log" aria-live="polite" aria-label="Terminal output" aria-atomic="false"></div>
     <div id="input-row">
         <span id="prompt-label" aria-hidden="true"><span class="prompt-host">visitor@paravozika</span>:~$</span>
         <label for="cmd-input" class="sr-only">Terminal input</label>
@@ -103,11 +101,12 @@
                 autocorrect="off"
                 autocapitalize="off"
                 spellcheck="false"
-                autofocus
+                disabled
                 aria-label="Terminal command input"
         />
     </div>
 </div>
+<script src="/static/content.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-(
+watch_certificates() {
     previous=""
     while sleep 60; do
         current="$(find -L /etc/letsencrypt/live -maxdepth 2 -type f \
@@ -12,4 +12,7 @@ set -eu
         fi
         previous="$current"
     done
-) &
+}
+
+watch_certificates &
+exec nginx -g 'daemon off;'

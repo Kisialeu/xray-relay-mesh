@@ -1,5 +1,5 @@
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Iterator
 
@@ -43,8 +43,9 @@ SessionLocal = sessionmaker(bind=ENGINE, autoflush=True, expire_on_commit=False)
 
 @contextmanager
 def session_scope() -> Iterator[Session]:
-    """Serialize short database transactions for the poller and HTTP readers."""
-    with DB_LOCK:
+    """Serialize SQLite access while allowing normal PostgreSQL concurrency."""
+    lock = DB_LOCK if not DB_IS_POSTGRES else nullcontext()
+    with lock:
         session = SessionLocal()
         try:
             yield session
@@ -57,5 +58,8 @@ def session_scope() -> Iterator[Session]:
 
 
 def init_db() -> None:
-    """Create the fresh ORM schema if it does not exist."""
+    """Create the schema and any missing additive indexes."""
     Base.metadata.create_all(ENGINE)
+    for table in Base.metadata.tables.values():
+        for index in table.indexes:
+            index.create(ENGINE, checkfirst=True)

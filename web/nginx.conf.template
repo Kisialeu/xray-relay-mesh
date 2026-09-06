@@ -1,59 +1,121 @@
-map $uri $stats_limit_key {
-    default "";
-    ~^/stats/api(?:/|$) $binary_remote_addr;
+# Nginx config for XRay stats web proxy
+# Security headers from OWASP recommended guidelines
+
+upstream stats_backend {
+    server 127.0.0.1:__STATS_APP_PORT__;
+    keepalive 32;
 }
 
-limit_req_zone $stats_limit_key zone=stats_api:10m rate=60r/m;
+upstream web_backend {
+    server 127.0.0.1:__WEB_APP_PORT__;
+    keepalive 32;     # Connection pooling to reduce TCP overhead
+}
+
+map $uri $stats_limit_key {
+    default         "";
+    ~^/stats/api(?:/|$) $binary_remote_addr;  # Rate limit API calls specifically
+}
+
+limit_req_zone $stats_limit_key zone=stats_api:10m rate=60r/m;  # 60 req/min for stats API
+
+# Client body limits
+client_max_body_size 1m;
+client_body_buffer_size 4k;
+client_header_buffer_size 4k;
+
+# HSTS headers - optional if domain is under user control
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+add_header X-Frame-Options "DENY" always;        # Prevent clickjacking/iframe embedding attacks
+add_header X-Content-Type-Options "nosniff" always;  # Prevent MIME sniffing
+add_header X-XSS-Protection "1; mode=block" always;  # XSS protection
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; form-action 'self';" always;
 
 server {
     listen __STATS_WEB_BIND__:__STATS_WEB_PORT__ ssl;
-    server_name _;
-    server_tokens off;
+    http2 on;
+    server_name __STATS_WEB_DOMAIN__;
 
     ssl_certificate /etc/letsencrypt/live/__STATS_WEB_DOMAIN__/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/__STATS_WEB_DOMAIN__/privkey.pem;
+
+    # Hide nginx version (security best practice)
+    server_tokens off;
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Use TLSv1.2 and TLSv1.3 only (no older protocols)
     ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
+    ssl_session_timeout 1h;
 
-    client_max_body_size 1m;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "no-referrer" always;
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml;
 
+    # Health check endpoint - no auth required (used by prometheus/docker healthchecks)
     location = /healthz {
-        auth_basic off;
+        access_log off;
         default_type application/json;
-        return 200 '{"ok":true}\n';
+        return 200 '{"ok":true}';
+        add_header Content-Type "application/json";
     }
 
+    # Redirect /stats without trailing slash to /stats/
     location = /stats {
         return 308 /stats/;
     }
 
+    # Protected stats API paths: requires htpasswd authentication
     location /stats/ {
         auth_basic "Xray Stats";
-        auth_basic_user_file /etc/nginx/.htpasswd;
+        auth_basic_user_file /etc/nginx/.htpasswd;  # httpd-auth module for basic auth
+
+        # Rate limiting on API calls only, not UI pages
         limit_req zone=stats_api burst=20 nodelay;
         limit_req_status 429;
-        proxy_pass http://127.0.0.1:__STATS_APP_PORT__/;
+
+        # Proxy settings - forward to Flask backend
+        proxy_pass http://stats_backend/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header Authorization "";
-        proxy_set_header X-Stats-Token "__STATS_API_TOKEN__";
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Stats-Token "__STATS_API_TOKEN__";
         proxy_read_timeout 30s;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 30s;
     }
 
+    # Public terminal UI (no auth) - serves Flask app's frontend
     location / {
-        proxy_pass http://127.0.0.1:__WEB_APP_PORT__;
+        proxy_pass http://web_backend;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 30s;
+        proxy_connect_timeout 10s;
     }
+
+    # 404 handler for missing resources
+    location /404 {
+        return 404 "Not Found";
+    }
+
+    # Deny access to sensitive directory listings (security best practice)
+    location ~* \.(htpasswd|env|pem)$ {
+        return 403;
+    }
+
+    # Log to stderr for container-level logging
+    access_log /dev/stdout;
+    error_log /dev/stderr warn;
 }

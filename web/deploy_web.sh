@@ -15,7 +15,7 @@ WEB_APP_PORT="${WEB_APP_PORT:-9095}"
 DOMAIN="${STATS_WEB_DOMAIN:-$(jq -r '.stats.web_domain // ""' "$INVENTORY")}"
 EMAIL="${STATS_WEB_EMAIL:-$(jq -r '.stats.web_email // ""' "$INVENTORY")}"
 STATS_TOKEN="$(jq -r '.stats.token // ""' "$INVENTORY")"
-HTPASSWD_SOURCE="${WEB_HTPASSWD_SOURCE:-/Users/siarhei/Sources/homeblog/minimal_blog/config/.htpasswd}"
+HTPASSWD_SOURCE="${WEB_HTPASSWD_SOURCE:-$SCRIPT_DIR/.htpasswd}"
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
 AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN:-}"
@@ -70,7 +70,16 @@ APP_PORT="${STATS_APP_PORT:-$(inv_stats_app_port "$INVENTORY")}"
 [ -n "$DOMAIN" ] || { error "stats.web_domain or STATS_WEB_DOMAIN is required"; exit 1; }
 [ -n "$EMAIL" ] || { error "stats.web_email or STATS_WEB_EMAIL is required"; exit 1; }
 [ -n "$STATS_TOKEN" ] || { error "stats.token is required"; exit 1; }
-[ -r "$HTPASSWD_SOURCE" ] || { error "htpasswd file is not readable: $HTPASSWD_SOURCE"; exit 1; }
+[[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] \
+    || { error "stats.web_domain contains unsupported characters"; exit 1; }
+[[ "$WEB_BIND" =~ ^[0-9A-Fa-f:.]+$ ]] \
+    || { error "STATS_WEB_BIND must be an IPv4 or IPv6 address"; exit 1; }
+printf '%s' "$STATS_TOKEN" | grep -Eq '^[A-Za-z0-9._~:-]{24,}$' \
+    || { error "stats.token must be at least 24 URL/header-safe characters"; exit 1; }
+[ -r "$HTPASSWD_SOURCE" ] || {
+    error "htpasswd file is not readable: $HTPASSWD_SOURCE (set WEB_HTPASSWD_SOURCE or place it at web/.htpasswd)"
+    exit 1
+}
 [ "$PRESERVE_REMOTE_ENV" -eq 1 ] || {
     [ -n "$AWS_ACCESS_KEY_ID" ] || { error "AWS_ACCESS_KEY_ID is required for the first deployment or .env replacement"; exit 1; }
     [ -n "$AWS_SECRET_ACCESS_KEY" ] || { error "AWS_SECRET_ACCESS_KEY is required for the first deployment or .env replacement"; exit 1; }
@@ -120,8 +129,9 @@ ssh_run "$HOST" "sudo install -d -m 755 '$WEB_DEPLOY_DIR/letsencrypt'"
 ssh_run "$HOST" "sudo chmod 600 '$WEB_DEPLOY_DIR/.env'"
 ssh_run "$HOST" "sudo chown root:101 '$WEB_DEPLOY_DIR/htpasswd' && sudo chmod 640 '$WEB_DEPLOY_DIR/htpasswd'"
 ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose build certbot && docker compose run --rm --entrypoint certbot certbot certonly --dns-route53 --non-interactive --agree-tos --email '$EMAIL' --domain '$DOMAIN' --keep-until-expiring"
-ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose build --pull web-app stats-web certbot && docker compose up -d --force-recreate --remove-orphans web-app stats-web certbot"
-sleep 2
+ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose build --pull web-app stats-web certbot"
+ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose run --rm --no-deps --entrypoint nginx stats-web -t"
+ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose up -d --wait --wait-timeout 60 --force-recreate --remove-orphans web-app stats-web certbot"
 mesh_container_running "$HOST" xray-stats-web \
     || { error "$MASTER_NODE: stats web container is not running - check docker compose -f '$WEB_DEPLOY_DIR/docker-compose.yml' logs stats-web"; exit 1; }
 mesh_container_running "$HOST" xray-web-app \

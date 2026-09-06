@@ -14,16 +14,22 @@
         <span class="signal-mark" aria-hidden="true">//</span>
         <div><p class="eyebrow">XRAY RELAY MESH</p><h1>Statistics console</h1></div>
       </div>
-      <div class="topbar-meta"><span id="connection-state" class="status-pill pending">CONNECTING</span><span id="last-refresh" class="muted">Waiting for data</span></div>
+      <div class="topbar-meta"><label class="range-control">Range <select id="time-range"><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="2592000">30 days</option><option value="7776000">90 days</option></select></label><span id="connection-state" class="status-pill pending">CONNECTING</span><span id="last-refresh" class="muted">Waiting for data</span></div>
     </header>
 
-    <section id="access-error" class="notice error hidden" role="alert"><strong>Statistics unavailable.</strong><span id="access-error-text">Provide the token in the URL or as an API header.</span></section>
+    <section id="access-error" class="notice error hidden" role="alert"><strong>Statistics unavailable.</strong><span id="access-error-text">Check the authenticated proxy and backend health.</span></section>
 
     <section class="metric-grid" aria-label="Summary">
-      <article class="metric-card accent-blue"><span class="metric-label">Tracked traffic</span><strong id="metric-total">-</strong><span class="metric-note">cumulative across nodes</span></article>
+      <article class="metric-card accent-blue"><span class="metric-label">Traffic in range</span><strong id="metric-total">-</strong><span class="metric-note" id="metric-range-note">across all nodes</span></article>
+      <article class="metric-card accent-purple"><span class="metric-label">Recent throughput</span><strong id="metric-rate">-</strong><span class="metric-note">average over latest complete bucket</span></article>
       <article class="metric-card accent-green"><span class="metric-label">Online users</span><strong id="metric-online">-</strong><span class="metric-note" id="metric-users-note">- tracked users</span></article>
       <article class="metric-card accent-amber"><span class="metric-label">Healthy nodes</span><strong id="metric-nodes">-</strong><span class="metric-note">polling status</span></article>
-      <article class="metric-card accent-purple"><span class="metric-label">Downstream</span><strong id="metric-down">-</strong><span class="metric-note">download volume</span></article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-heading"><div><p class="eyebrow">MESH TRAFFIC</p><h2>Upload and download over time</h2><p class="chart-subtitle">Gaps indicate unavailable polling data</p></div><span id="traffic-coverage" class="panel-count">Waiting for samples</span></div>
+      <div id="mesh-traffic-chart" class="traffic-chart line-chart" role="img" aria-label="Mesh upload and download over time"></div>
+      <div class="chart-legend"><span><i class="legend-line" style="background:var(--blue)"></i>Upload</span><span><i class="legend-line" style="background:var(--purple)"></i>Download</span></div>
     </section>
 
     <section class="panel">
@@ -32,8 +38,8 @@
     </section>
 
     <section class="panel">
-      <div class="panel-heading users-heading"><div><p class="eyebrow">ACCOUNT TRAFFIC</p><h2>Users</h2></div><label class="search-box"><span class="sr-only">Filter users</span><input id="user-filter" type="search" placeholder="Filter user or node" autocomplete="off"></label></div>
-      <div class="table-wrap"><table><thead><tr><th>User</th><th>Nodes</th><th>Total</th><th>Up</th><th>Down</th><th>Online</th><th>Online on</th><th>Activity</th><th>Last seen</th></tr></thead><tbody id="users"><tr><td colspan="9" class="empty">Loading user traffic...</td></tr></tbody></table></div>
+      <div class="panel-heading users-heading"><div><p class="eyebrow">ACCOUNT TRAFFIC</p><h2>Users</h2></div><div class="table-controls"><label class="search-box"><span class="sr-only">Filter users</span><input id="user-filter" type="search" placeholder="Filter user or node" autocomplete="off"></label><label class="range-control"><span class="sr-only">Filter status</span><select id="status-filter"><option value="all">All states</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">Unknown</option></select></label></div></div>
+      <div class="table-wrap"><table><thead><tr><th><button class="sort-button" data-sort="user">User</button></th><th>Nodes</th><th><button class="sort-button active descending" data-sort="period_total">Selected period</button></th><th>Share</th><th><button class="sort-button" data-sort="total">Lifetime</button></th><th>Online</th><th>Online on</th><th>Activity</th><th><button class="sort-button" data-sort="last_seen">Last seen</button></th></tr></thead><tbody id="users"><tr><td colspan="9" class="empty">Loading user traffic...</td></tr></tbody></table></div>
     </section>
 
     <footer class="footer">Auto-refresh <span id="refresh-interval">15s</span> <span class="footer-separator">/</span> read-only collector</footer>

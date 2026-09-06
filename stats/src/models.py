@@ -16,6 +16,21 @@ class Health(Base):
     ts: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class PollRun(Base):
+    __tablename__ = "poll_runs"
+    __table_args__ = (
+        Index("ix_poll_runs_ts", "ts"),
+        Index("ix_poll_runs_node_ts", "node", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    node: Mapped[str] = mapped_column(String(255), nullable=False)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ts: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class Previous(Base):
     __tablename__ = "prev"
 
@@ -45,6 +60,8 @@ class Sample(Base):
     __tablename__ = "samples"
     __table_args__ = (
         Index("ix_samples_ts", "ts"),
+        Index("ix_samples_node_ts", "node", "ts"),
+        Index("ix_samples_user_ts", "user", "ts"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

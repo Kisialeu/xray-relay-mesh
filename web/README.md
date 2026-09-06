@@ -30,6 +30,13 @@ it in the persistent `/opt/xray-web/letsencrypt` directory. Set `stats.web_domai
 `AWS_SESSION_TOKEN` before deployment. The credentials are written only to the
 remote stack `.env` with mode `600`.
 
+Provide the local Nginx Basic Auth file either as `web/.htpasswd` or through
+`WEB_HTPASSWD_SOURCE`. The file is ignored by Git:
+
+```bash
+WEB_HTPASSWD_SOURCE=/secure/path/.htpasswd ./mesh.sh deploy-web
+```
+
 Certbot renews every 12 hours. The Nginx container watches the certificate
 files and reloads itself after renewal.
 

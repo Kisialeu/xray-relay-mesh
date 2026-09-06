@@ -3,13 +3,28 @@ import subprocess
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import delete, select
 
 from config import HTTP_TIMEOUT, LOG, POLL_INTERVAL, RETENTION_DAYS, SSH_KEY, SSH_KNOWN_HOSTS
 from db import session_scope
 from inventory import load_inventory
-from models import Health, Previous, Sample, Total
+from models import Health, PollRun, Previous, Sample, Total
+
+
+POLL_STATE = {"last_started": 0.0, "last_completed": 0.0, "last_error": "", "node_count": 0}
+POLL_STATE_LOCK = threading.Lock()
+
+
+def poller_status():
+    with POLL_STATE_LOCK:
+        return dict(POLL_STATE)
+
+
+def _update_poll_state(**values):
+    with POLL_STATE_LOCK:
+        POLL_STATE.update(values)
 
 
 def parse_stats(raw):
@@ -17,7 +32,7 @@ def parse_stats(raw):
     for item in raw.get("stat", []):
         name = item.get("name", "")
         parts = name.split(">>>")
-        if len(parts) != 4:
+        if len(parts) != 4 or parts[0] != "user" or parts[2] != "traffic":
             continue
         user = parts[1]
         direction = parts[3]
@@ -31,9 +46,10 @@ def parse_stats(raw):
 def parse_online(raw):
     users = set()
     for entry in raw.get("users", []):
+        if not isinstance(entry, str) or not entry:
+            continue
         parts = entry.split(">>>")
-        if len(parts) >= 2:
-            users.add(parts[1])
+        users.add(parts[1] if len(parts) >= 2 else entry)
     return users
 
 
@@ -47,32 +63,29 @@ def fetch_json(url, token=""):
 
 
 def set_health(node, ok, latency_ms, error=None):
+    ts = int(time.time())
     with session_scope() as session:
         health = session.get(Health, node)
         if health is None:
-            health = Health(node=node, ok=bool(ok), latency_ms=latency_ms, error=error or "", ts=int(time.time()))
+            health = Health(node=node, ok=bool(ok), latency_ms=latency_ms, error=error or "", ts=ts)
             session.add(health)
         else:
             health.ok = bool(ok)
             health.latency_ms = latency_ms
             health.error = error or ""
-            health.ts = int(time.time())
+            health.ts = ts
+        session.add(PollRun(
+            node=node,
+            ok=bool(ok),
+            latency_ms=latency_ms,
+            error=error or "",
+            ts=ts,
+        ))
 
 
 def accumulate(node, stats, online):
     ts = int(time.time())
     with session_scope() as session:
-        if not stats:
-            totals = session.scalars(select(Total).where(Total.node == node)).all()
-            for total in totals:
-                if total.active:
-                    total.last_online = ts
-                total.online = False
-                total.active = False
-                total.active_since = None
-                total.active_bytes = 0
-            return
-
         for user, traffic in stats.items():
             previous = session.get(Previous, (node, user))
             cur_up = int(traffic.get("uplink", 0))
@@ -118,8 +131,43 @@ def accumulate(node, stats, online):
                 previous.downlink = cur_down
                 previous.was_active = is_active
 
-        cutoff = ts - RETENTION_DAYS * 86400
+        current_users = set(stats)
+        totals = session.scalars(select(Total).where(Total.node == node)).all()
+        for total in totals:
+            if total.user_name in current_users:
+                continue
+            if total.active:
+                total.last_online = ts
+            total.online = False
+            total.active = False
+            total.active_since = None
+            total.active_bytes = 0
+
+        previous_rows = session.scalars(select(Previous).where(Previous.node == node)).all()
+        for previous in previous_rows:
+            if previous.user_name not in current_users:
+                previous.was_active = False
+
+
+def mark_unavailable(node):
+    """Reset transient activity without treating a failed poll as traffic data."""
+    with session_scope() as session:
+        totals = session.scalars(select(Total).where(Total.node == node)).all()
+        for total in totals:
+            total.online = False
+            total.active = False
+            total.active_since = None
+            total.active_bytes = 0
+        previous_rows = session.scalars(select(Previous).where(Previous.node == node)).all()
+        for previous in previous_rows:
+            previous.was_active = False
+
+
+def prune_samples():
+    cutoff = int(time.time()) - RETENTION_DAYS * 86400
+    with session_scope() as session:
         session.execute(delete(Sample).where(Sample.ts < cutoff))
+        session.execute(delete(PollRun).where(PollRun.ts < cutoff))
 
 
 def fetch_ssh(node, endpoint):
@@ -161,32 +209,41 @@ def poll_node(node):
             raw = fetch_ssh(node, "stats")
             online_raw = fetch_ssh(node, "online")
         latency = int((time.monotonic() - start) * 1000)
-        set_health(name, True, latency)
         accumulate(name, parse_stats(raw), parse_online(online_raw))
+        set_health(name, True, latency)
     except Exception as exc:      # network, JSON, or DB errors must not kill the poller
         latency = int((time.monotonic() - start) * 1000)
         LOG.warning("poll %s failed: %s", name, exc)
         try:
             set_health(name, False, latency, exc.__class__.__name__)
-            accumulate(name, {}, set())
+            mark_unavailable(name)
         except Exception as db_exc:      # last-ditch: a DB error must not crash the thread
             LOG.error("record poll failure for %s: %s", name, db_exc)
 
 
 def poll_loop():
+    next_cleanup = 0.0
     while True:
         started = time.monotonic()
+        _update_poll_state(last_started=time.time())
         try:
             nodes = load_inventory()
         except Exception as exc:      # transient inventory read/parse must not kill the poller
             LOG.warning("load_inventory failed: %s", exc)
             nodes = []
-        threads = []
-        for node in nodes:
-            thread = threading.Thread(target=poll_node, args=(node,), daemon=True)
-            thread.start()
-            threads.append(thread)
-        for thread in threads:
-            thread.join(timeout=2 * (HTTP_TIMEOUT + 2) + 1)
+            _update_poll_state(last_error=exc.__class__.__name__, node_count=0)
+        else:
+            _update_poll_state(last_error="", node_count=len(nodes))
+        if nodes:
+            with ThreadPoolExecutor(max_workers=min(len(nodes), 32), thread_name_prefix="stats-poll") as executor:
+                list(executor.map(poll_node, nodes))
+        _update_poll_state(last_completed=time.time())
+        now = time.monotonic()
+        if now >= next_cleanup:
+            try:
+                prune_samples()
+            except Exception as exc:
+                LOG.error("sample retention failed: %s", exc)
+            next_cleanup = now + 3600
         elapsed = time.monotonic() - started
         time.sleep(max(1, POLL_INTERVAL - elapsed))

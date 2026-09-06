@@ -26,12 +26,24 @@ WEB_PORT="$(inv_stats_web_port "$INVENTORY")"
 APP_PORT="${STATS_APP_PORT:-$(inv_stats_app_port "$INVENTORY")}"
 SSH_USER_STATS="$(jq -r '.stats.ssh_user // "stats-poller"' "$INVENTORY")"
 SSH_PORT_STATS="$(jq -r '.stats.ssh_port // 22' "$INVENTORY")"
+POLL_INTERVAL_VALUE="${STATS_POLL_INTERVAL:-15}"
+HTTP_TIMEOUT_VALUE="${STATS_HTTP_TIMEOUT:-5}"
+RETENTION_DAYS_VALUE="${STATS_RETENTION_DAYS:-90}"
+ONLINE_WINDOW_VALUE="${STATS_ONLINE_WINDOW:-120}"
+ACTIVE_DURATION_VALUE="${STATS_ACTIVE_DURATION:-30}"
+MIN_ACTIVITY_BYTES_VALUE="${STATS_MIN_ACTIVITY_BYTES:-1024}"
 
 [ -n "$POSTGRES_PASSWORD" ] || { error "stats.postgres_password is required"; exit 1; }
 [ -n "$STATS_TOKEN" ] || { error "stats.token is required"; exit 1; }
 [[ "$APP_PORT" =~ ^[0-9]+$ && "$APP_PORT" -ge 1 && "$APP_PORT" -le 65535 ]] \
     || { error "STATS_APP_PORT must be a port in range 1-65535"; exit 1; }
 [ "$APP_PORT" != "$WEB_PORT" ] || { error "stats.app_port and stats.web_port must differ"; exit 1; }
+for value in "$POLL_INTERVAL_VALUE" "$RETENTION_DAYS_VALUE" "$ONLINE_WINDOW_VALUE" "$ACTIVE_DURATION_VALUE" "$MIN_ACTIVITY_BYTES_VALUE"; do
+    [[ "$value" =~ ^[1-9][0-9]*$ ]] || { error "stats timing and activity values must be positive integers"; exit 1; }
+done
+[ "$RETENTION_DAYS_VALUE" -le 90 ] || { error "STATS_RETENTION_DAYS must not exceed 90"; exit 1; }
+[[ "$HTTP_TIMEOUT_VALUE" =~ ^([1-9][0-9]*|0[.][0-9]*[1-9][0-9]*|[1-9][0-9]*[.][0-9]+)$ ]] \
+    || { error "STATS_HTTP_TIMEOUT must be a positive number"; exit 1; }
 
 mesh_resolve_ssh "$INVENTORY" "$MASTER_NODE"
 
@@ -149,8 +161,20 @@ trap "rm -rf '$stage'" EXIT
 cp -r "$SCRIPT_DIR/src" "$stage/src"
 cp "$SCRIPT_DIR/requirements.txt" "$stage/requirements.txt"
 cp "$SCRIPT_DIR/Dockerfile" "$stage/Dockerfile"
+cp "$SCRIPT_DIR/.dockerignore" "$stage/.dockerignore"
 cp "$SCRIPT_DIR/docker-compose.stats.yml" "$stage/docker-compose.yml"
-cp "$INVENTORY" "$stage/inventory.json"
+jq '{
+    stats: {
+        master_node: .stats.master_node,
+        node_port: (.stats.node_port // 9091)
+    },
+    nodes: [.nodes[] | {
+        name,
+        friendly_name,
+        host,
+        stats_host
+    } | with_entries(select(.value != null))]
+}' "$INVENTORY" > "$stage/inventory.json"
 
 {
     printf 'POSTGRES_DB=xray_stats\n'
@@ -160,21 +184,22 @@ cp "$INVENTORY" "$stage/inventory.json"
     printf 'STATS_APP_PORT=%s\n' "$APP_PORT"
     printf 'STATS_API_TOKEN=%s\n' "$STATS_TOKEN"
     printf 'STATS_BIND=127.0.0.1\n'
-    printf 'STATS_POLL_INTERVAL=15\n'
-    printf 'STATS_HTTP_TIMEOUT=5\n'
-    printf 'STATS_RETENTION_DAYS=60\n'
-    printf 'STATS_ONLINE_WINDOW=300\n'
-    printf 'STATS_ACTIVE_DURATION=60\n'
-    printf 'STATS_MIN_ACTIVITY_BYTES=1024\n'
+    printf 'STATS_POLL_INTERVAL=%s\n' "$POLL_INTERVAL_VALUE"
+    printf 'STATS_HTTP_TIMEOUT=%s\n' "$HTTP_TIMEOUT_VALUE"
+    printf 'STATS_RETENTION_DAYS=%s\n' "$RETENTION_DAYS_VALUE"
+    printf 'STATS_ONLINE_WINDOW=%s\n' "$ONLINE_WINDOW_VALUE"
+    printf 'STATS_ACTIVE_DURATION=%s\n' "$ACTIVE_DURATION_VALUE"
+    printf 'STATS_MIN_ACTIVITY_BYTES=%s\n' "$MIN_ACTIVITY_BYTES_VALUE"
     printf 'STATS_SSH_USER=%s\n' "$SSH_USER_STATS"
     printf 'STATS_SSH_PORT=%s\n' "$SSH_PORT_STATS"
 } > "$stage/.env"
+chmod 600 "$stage/.env"
 
 info "$MASTER_NODE ($HOST): deploying central stats service"
 mesh_check_docker "$HOST"
 mesh_check_docker_compose "$HOST"
 mesh_upload_dir_merge "$HOST" "$stage" "$STATS_DEPLOY_DIR"
 ssh_run "$HOST" "sudo install -d -m 700 -o 70 -g 70 '$STATS_DEPLOY_DIR/postgres'"
-ssh_run "$HOST" "cd ${STATS_DEPLOY_DIR} && docker compose up -d --build"
+ssh_run "$HOST" "sudo chmod 600 '$STATS_DEPLOY_DIR/.env' && cd '$STATS_DEPLOY_DIR' && docker compose up -d --build --wait --wait-timeout 120"
 cleanup_old_stats_keys "$HOST" "$NEW_STATS_PUB"
 success "$HOST: central stats service deployed"

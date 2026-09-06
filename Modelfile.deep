@@ -1,6 +1,6 @@
-FROM qwen3-coder:30b
+FROM qwen3.8:27b-mlx
 
-PARAMETER num_ctx 32768
+PARAMETER num_ctx 168000
 PARAMETER num_predict 6144
 PARAMETER temperature 0.10
 PARAMETER top_p 0.90

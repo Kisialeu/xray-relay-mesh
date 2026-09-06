@@ -16,12 +16,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   stats:
     build: .
     container_name: xray-stats
     restart: unless-stopped
     network_mode: host
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
     depends_on:
       stats-postgres:
         condition: service_healthy
@@ -33,9 +46,9 @@ services:
       STATS_API_TOKEN: ${STATS_API_TOKEN:?STATS_API_TOKEN required}
       STATS_POLL_INTERVAL: ${STATS_POLL_INTERVAL:-15}
       STATS_HTTP_TIMEOUT: ${STATS_HTTP_TIMEOUT:-5}
-      STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-60}
-      STATS_ONLINE_WINDOW: ${STATS_ONLINE_WINDOW:-300}
-      STATS_ACTIVE_DURATION: ${STATS_ACTIVE_DURATION:-60}
+      STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-90}
+      STATS_ONLINE_WINDOW: ${STATS_ONLINE_WINDOW:-120}
+      STATS_ACTIVE_DURATION: ${STATS_ACTIVE_DURATION:-30}
       STATS_MIN_ACTIVITY_BYTES: ${STATS_MIN_ACTIVITY_BYTES:-1024}
       STATS_SSH_KEY: /app/ssh/id_ed25519
       STATS_SSH_KNOWN_HOSTS: /app/ssh/known_hosts
@@ -44,3 +57,8 @@ services:
     volumes:
       - ./inventory.json:/app/inventory.json:ro
       - ./ssh:/app/ssh:ro
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
