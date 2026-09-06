@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Node - Xray Stats</title>
+  <link rel="stylesheet" href="/stats/static/stats.css">
+</head>
+<body>
+  <main class="shell narrow-shell">
+    <header class="topbar"><div class="brand-lockup"><a class="back-link" href="/stats/xray" aria-label="Back to dashboard">&lt;-</a><div><p class="eyebrow">NODE DETAIL</p><h1 id="node-title">Node</h1></div></div><div class="topbar-meta"><label class="range-control">Range <select id="node-time-range"><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="2592000">30 days</option><option value="7776000">90 days</option></select></label><span id="connection-state" class="status-pill pending">CONNECTING</span></div></header>
+    <section id="access-error" class="notice error hidden" role="alert"><strong>Statistics unavailable.</strong><span id="access-error-text">Check the authenticated proxy and backend health.</span></section>
+    <section class="metric-grid"><article class="metric-card accent-green"><span class="metric-label">Current status</span><strong id="node-status">-</strong><span class="metric-note" id="node-status-note">-</span></article><article class="metric-card accent-amber"><span class="metric-label">Availability</span><strong id="node-availability">-</strong><span class="metric-note" id="node-poll-summary">-</span></article><article class="metric-card accent-blue"><span class="metric-label">Traffic in range</span><strong id="node-total">-</strong><span class="metric-note" id="node-rate">-</span></article><article class="metric-card accent-purple"><span class="metric-label">Online users</span><strong id="node-online">-</strong><span class="metric-note"><span id="node-user-count">- users</span></span></article></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">ACCOUNT TRAFFIC</p><h2>Users on this node</h2></div><span class="panel-count">Upload <b id="node-up">-</b> / Download <b id="node-down">-</b></span></div><div class="table-wrap"><table><thead><tr><th>User</th><th>Total</th><th>Up</th><th>Down</th><th>Online</th><th>Activity</th><th>Last seen</th></tr></thead><tbody id="node-users-table"><tr><td colspan="7" class="empty">Loading node traffic...</td></tr></tbody></table></div></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">HISTORICAL ACTIVITY</p><h2>Node upload and download</h2><p class="chart-subtitle">Gaps indicate unavailable polling data</p></div><span id="node-traffic-coverage" class="panel-count">Waiting for samples</span></div><div id="node-traffic-chart" class="traffic-chart line-chart" role="img" aria-label="Historical node upload and download"></div><div class="chart-legend"><span><i class="legend-dot upload"></i>Upload</span><span><i class="legend-dot download"></i>Download</span></div></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">EXACT MEASUREMENTS</p><h2>Recent sample log</h2></div><span class="panel-count">Traffic delta per poll</span></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Upload</th><th>Download</th><th>Total</th></tr></thead><tbody id="node-samples-table"><tr><td colspan="4" class="empty">Loading samples...</td></tr></tbody></table></div></section>
+  </main>
+  <script src="/stats/static/stats.js"></script>
+  <script>window.initNodePage();</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>User - Xray Stats</title>
+  <link rel="stylesheet" href="/stats/static/stats.css">
+</head>
+<body>
+  <main class="shell narrow-shell">
+    <header class="topbar"><div class="brand-lockup"><a class="back-link" href="/stats/xray" aria-label="Back to dashboard">&lt;-</a><div><p class="eyebrow">USER DETAIL</p><h1 id="user-title">User</h1></div></div><div class="topbar-meta"><label class="range-control">Range <select id="user-time-range"><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="2592000">30 days</option><option value="7776000">90 days</option></select></label><span id="connection-state" class="status-pill pending">CONNECTING</span></div></header>
+    <section id="access-error" class="notice error hidden" role="alert"><strong>Statistics unavailable.</strong><span id="access-error-text">Check the authenticated proxy and backend health.</span></section>
+    <section class="metric-grid user-metrics"><article class="metric-card accent-blue"><span class="metric-label">Traffic in range</span><strong id="user-total">-</strong><span class="metric-note" id="user-active-nodes">-</span></article><article class="metric-card accent-green"><span class="metric-label">Upload</span><strong id="user-up">-</strong><span class="metric-note">selected range</span></article><article class="metric-card accent-purple"><span class="metric-label">Download</span><strong id="user-down">-</strong><span class="metric-note">selected range</span></article><article class="metric-card accent-amber"><span class="metric-label">Last seen</span><strong id="user-last-seen">-</strong><span class="metric-note" id="user-status">-</span></article></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">NODE BREAKDOWN</p><h2>Traffic by node</h2></div><span id="node-sample-count" class="panel-count">-</span></div><div class="table-wrap"><table><thead><tr><th>Node</th><th>Selected period</th><th>Up</th><th>Down</th><th>Online</th><th>Activity</th><th>Last seen</th></tr></thead><tbody id="user-nodes-table"><tr><td colspan="7" class="empty">Loading node traffic...</td></tr></tbody></table></div></section>
+    <section class="panel"><div class="panel-heading"><div><p class="eyebrow">HISTORICAL ACTIVITY</p><h2>User upload and download</h2><p class="chart-subtitle">Successful idle polls are zero; missing data is shown as a gap</p></div><span id="user-traffic-coverage" class="panel-count">Waiting for samples</span></div><div id="user-traffic-chart" class="traffic-chart line-chart" role="img" aria-label="Historical user upload and download"></div><div class="chart-legend"><span><i class="legend-dot upload"></i>Upload</span><span><i class="legend-dot download"></i>Download</span></div></section>
+  </main>
+  <script src="/stats/static/stats.js"></script>
+  <script>window.initUserPage();</script>
+</body>
+</html>

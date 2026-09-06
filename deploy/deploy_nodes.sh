@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push-model deploy: renders the Xray stack (.env, config.json, AdGuard Home
+# Renders the Xray stack (.env, config.json, AdGuard Home
 # config, docker-compose.yml) for one or all nodes from inventory.json,
 # uploads it, and starts/reloads it idempotently. Run this BEFORE
 # relay-mesh/relay/deploy_mesh.sh - the relay mesh proxies to these nodes'

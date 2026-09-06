@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Remote-side Xray node stack operations over SSH: host prep (docker,
-# docker compose plugin, BBR, deps), idempotent apply (push + restart only
+# docker compose plugin, BBR, deps), idempotent apply (config + restart only
 # on change), and rollback via a tar snapshot of the previous deploy dir.
 # deploy_dir (e.g. /opt/xray-node) is typically root-owned, so every write
 # under it goes through sudo - the ssh_user (e.g. a non-root "ubuntu") may
@@ -128,7 +128,7 @@ xray_apply() {
     mesh_upload_dir_merge "$host" "$stage_dir" "$deploy_dir" || return 1
     ssh_run "$host" "
         sudo mkdir -p ${deploy_dir}/logs ${deploy_dir}/adguard/work ${deploy_dir}/adguard/conf &&
-        sudo chmod 777 ${deploy_dir}/logs &&
+        sudo chmod 644 ${deploy_dir}/logs &&
         sudo chmod +x ${deploy_dir}/entrypoint.sh &&
         sudo chmod 644 ${deploy_dir}/.env ${deploy_dir}/config/config.json ${deploy_dir}/adguard/conf/AdGuardHome.yaml ${deploy_dir}/docker-compose.yml ${deploy_dir}/stats.py
     " || { error "$host: failed to finalize permissions on $deploy_dir"; return 1; }
