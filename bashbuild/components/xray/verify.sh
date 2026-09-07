@@ -77,6 +77,15 @@ sudo docker compose --profile hysteria rm -sf hysteria
 REMOTE
 }
 
+xray_cleanup_failed_initial() {
+    local host="$1" deploy_dir="$2"
+    remote_bash "$host" "$deploy_dir" <<'REMOTE'
+set -euo pipefail
+sudo docker rm -f xray warp adguard-home hysteria >/dev/null 2>&1 || true
+sudo docker network rm xray-node_xray-net >/dev/null 2>&1 || true
+REMOTE
+}
+
 xray_remote_hysteria_enabled() {
     local host="$1" deploy_dir="$2"
     remote_bash "$host" "$deploy_dir/.env" <<'REMOTE'

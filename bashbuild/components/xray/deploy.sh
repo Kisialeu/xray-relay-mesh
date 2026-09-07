@@ -32,7 +32,7 @@ xray_apply_services() {
 
 xray_deploy_one() {
     local inventory="$1" node="$2" host stage_dir="" run_id local_digest remote_digest
-    local hysteria_enabled rc=0 changed=1 result
+    local hysteria_enabled rc=0 changed=1 result had_previous=0
     host=$(inv_node_field "$inventory" "$node" host)
     hysteria_enabled=$(inv_node_has_hysteria "$inventory" "$node")
     mesh_resolve_ssh "$inventory" "$node"
@@ -51,6 +51,7 @@ xray_deploy_one() {
 
     if [ "$rc" -eq 0 ]; then
         remote_digest=$(remote_managed_digest "$host" "$XRAY_DEPLOY_DIR" || true)
+        [ -n "$remote_digest" ] && had_previous=1
         if [ "$remote_digest" = "$local_digest" ]; then
             changed=0
             if ! xray_verify "$host" "$hysteria_enabled"; then
@@ -73,6 +74,7 @@ xray_deploy_one() {
                 hysteria_enabled=$(xray_remote_hysteria_enabled "$host" "$XRAY_DEPLOY_DIR" || printf 'false\n')
                 xray_sync_system_hooks "$host" "$XRAY_DEPLOY_DIR" >/dev/null 2>&1 || true
                 xray_apply_services "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" none >/dev/null 2>&1 || true
+                [ "$had_previous" -eq 1 ] || xray_cleanup_failed_initial "$host" "$XRAY_DEPLOY_DIR" >/dev/null 2>&1 || true
             fi
         else
             remote_commit_backup "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1

@@ -66,7 +66,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..29\n'
+printf '1..30\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -222,3 +222,7 @@ pass "Xray staged validation does not create a Docker network"
 grep -F 'deadline=$((SECONDS + $1))' "$ROOT_DIR/bashbuild/components/xray/verify.sh" >/dev/null \
     || fail "Xray statistics verification waits for endpoint readiness"
 pass "Xray statistics verification waits for endpoint readiness"
+
+grep -F 'xray_cleanup_failed_initial' "$ROOT_DIR/bashbuild/components/xray/deploy.sh" >/dev/null \
+    || fail "Xray first-deployment failures clean mesh containers"
+pass "Xray first-deployment failures clean mesh containers"
