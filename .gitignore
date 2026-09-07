@@ -75,7 +75,7 @@ dmypy.json
 Thumbs.db
 
 # Environment variables / secrets
-.env
+configs/secrets/.env
 .env.*
 !.env.example
 web/.htpasswd
@@ -118,14 +118,19 @@ subscriptions/
 
 AGENTS.md
 PLAN.md
-Modelfile*
+Modelfile.*
+
 *agent*.sh
 
-# inventory.json
+# Local configuration and generated runtime data
 inventory.json
+configs/inventory.json
+configs/secrets/
+var/
+*.json.backup
 
 # env and subs files
-.env
+configs/secrets/.env
 *.token
 *.links
 *.b64
