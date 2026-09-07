@@ -6,10 +6,19 @@ class Base(DeclarativeBase):
     pass
 
 
+# "protocol" (e.g. "xray", "hysteria" - see stats/src/protocols.py) joins
+# every table below because a single node can run more than one protocol,
+# each with its own independent, unrelated traffic counter for the same
+# user - conflating them under a bare (node, user) key would corrupt the
+# delta tracking in poller.accumulate() the moment a node runs a second
+# protocol. Schema changes here require the documented reset-and-redeploy
+# procedure (see stats/README.md) - there is no live migration.
+
 class Health(Base):
     __tablename__ = "health"
 
     node: Mapped[str] = mapped_column(String(255), primary_key=True)
+    protocol: Mapped[str] = mapped_column(String(32), primary_key=True)
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -20,11 +29,12 @@ class PollRun(Base):
     __tablename__ = "poll_runs"
     __table_args__ = (
         Index("ix_poll_runs_ts", "ts"),
-        Index("ix_poll_runs_node_ts", "node", "ts"),
+        Index("ix_poll_runs_node_ts", "node", "protocol", "ts"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node: Mapped[str] = mapped_column(String(255), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(32), nullable=False)
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -35,6 +45,7 @@ class Previous(Base):
     __tablename__ = "prev"
 
     node: Mapped[str] = mapped_column(String(255), primary_key=True)
+    protocol: Mapped[str] = mapped_column(String(32), primary_key=True)
     user_name: Mapped[str] = mapped_column("user", String(255), primary_key=True)
     uplink: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     downlink: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -45,6 +56,7 @@ class Total(Base):
     __tablename__ = "totals"
 
     node: Mapped[str] = mapped_column(String(255), primary_key=True)
+    protocol: Mapped[str] = mapped_column(String(32), primary_key=True)
     user_name: Mapped[str] = mapped_column("user", String(255), primary_key=True)
     uplink: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     downlink: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -66,10 +78,11 @@ class Sample(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node: Mapped[str] = mapped_column(String(255), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(32), nullable=False)
     user_name: Mapped[str] = mapped_column("user", String(255), nullable=False)
     ts: Mapped[int] = mapped_column(Integer, nullable=False)
     uplink: Mapped[int] = mapped_column(BigInteger, nullable=False)
     downlink: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
-Index("ix_samples_node_user_ts", Sample.node, Sample.user_name, Sample.ts)
+Index("ix_samples_node_user_ts", Sample.node, Sample.protocol, Sample.user_name, Sample.ts)

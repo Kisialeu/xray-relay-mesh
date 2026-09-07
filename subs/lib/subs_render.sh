@@ -3,7 +3,8 @@
 # inventory.json. Reality crypto params (pbk/sni/sid) are identical on every
 # node by design, so a relay link only differs from a direct link in
 # host:port. Hysteria2 links are direct-connect only (no relay - see
-# lib/hysteria_render.sh) and only emitted for nodes with a "tls_domain" set.
+# lib/hysteria_render.sh) and only emitted for nodes with "hysteria" in
+# their "protocols" array (per-node opt-in, see inv_node_has_hysteria).
 # Sourced by generate_subscriptions.sh - not meant to be run directly.
 
 # A bare IPv6 literal ("2001:db8::1") is ambiguous in a URI's host:port
@@ -29,12 +30,15 @@ build_vless_link() {
 # borrows a foreign site's handshake), and the connect address (host) can
 # safely stay an IP because SNI/cert validation is independent of it.
 build_hysteria2_link() {
-    local email="$1" uuid="$2" host="$3" port="$4" sni="$5" fragment="$6"
-    printf 'hysteria2://%s:%s@%s:%s/?sni=%s#%s' \
+    local email="$1" uuid="$2" host="$3" port="$4" sni="$5" fragment="$6" obfs_password="$7"
+    local obfs_qs=""
+    [ -n "$obfs_password" ] && obfs_qs="&obfs=salamander&obfs-password=$(jq -rn --arg s "$obfs_password" '$s|@uri')"
+    printf 'hysteria2://%s:%s@%s:%s/?sni=%s%s#%s' \
         "$(jq -rn --arg s "$email" '$s|@uri')" \
         "$(jq -rn --arg s "$uuid" '$s|@uri')" \
         "$(_uri_host "$host")" "$port" \
         "$(jq -rn --arg s "$sni" '$s|@uri')" \
+        "$obfs_qs" \
         "$(jq -rn --arg s "$fragment" '$s|@uri')"
 }
 
@@ -78,8 +82,9 @@ build_all_links() {
         return 1
     fi
 
-    local hysteria_enabled
-    hysteria_enabled=$(inv_hysteria_enabled "$file")
+    local hysteria_node_names hysteria_obfs_password
+    hysteria_node_names=$(inv_hysteria_node_names "$file")
+    hysteria_obfs_password=$(inv_hysteria_obfs_password "$file")
 
     local direct_nodes relay_pairs
     direct_nodes=$(jq -r '.nodes[] | "\(.name)\t\(.host)\t\(.direct_port)\t\(.friendly_name // .name)\t\(.tls_domain // "")"' "$file")
@@ -94,9 +99,9 @@ build_all_links() {
             printf '%s\t%s\n' "$email" \
                 "$(build_vless_link "$uuid" "$host" "$port" "${display_name} direct" "$pubkey" "$sni" "$short_id" "$fp")"
 
-            if [ "$hysteria_enabled" = "true" ] && [ -n "$tls_domain" ]; then
+            if [ -n "$tls_domain" ] && grep -Fxq "$name" <<< "$hysteria_node_names"; then
                 printf '%s\t%s\n' "$email" \
-                    "$(build_hysteria2_link "$email" "$uuid" "$host" "$port" "$tls_domain" "${display_name} direct (Hysteria2)")"
+                    "$(build_hysteria2_link "$email" "$uuid" "$host" "$port" "$tls_domain" "${display_name} (UDP)" "$hysteria_obfs_password")"
             fi
         done <<< "$direct_nodes"
 

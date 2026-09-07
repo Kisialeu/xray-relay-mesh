@@ -11,6 +11,7 @@ from config import HTTP_TIMEOUT, LOG, POLL_INTERVAL, RETENTION_DAYS, SSH_KEY, SS
 from db import session_scope
 from inventory import load_inventory
 from models import Health, PollRun, Previous, Sample, Total
+from protocols import PROTOCOLS
 
 
 POLL_STATE = {"last_started": 0.0, "last_completed": 0.0, "last_error": "", "node_count": 0}
@@ -27,32 +28,6 @@ def _update_poll_state(**values):
         POLL_STATE.update(values)
 
 
-def parse_stats(raw):
-    result = {}
-    for item in raw.get("stat", []):
-        name = item.get("name", "")
-        parts = name.split(">>>")
-        if len(parts) != 4 or parts[0] != "user" or parts[2] != "traffic":
-            continue
-        user = parts[1]
-        direction = parts[3]
-        if direction not in ("uplink", "downlink"):
-            continue
-        result.setdefault(user, {"uplink": 0, "downlink": 0})
-        result[user][direction] = int(item.get("value") or 0)
-    return result
-
-
-def parse_online(raw):
-    users = set()
-    for entry in raw.get("users", []):
-        if not isinstance(entry, str) or not entry:
-            continue
-        parts = entry.split(">>>")
-        users.add(parts[1] if len(parts) >= 2 else entry)
-    return users
-
-
 def fetch_json(url, token=""):
     headers = {"Accept": "application/json"}
     if token:
@@ -62,12 +37,12 @@ def fetch_json(url, token=""):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def set_health(node, ok, latency_ms, error=None):
+def set_health(node, protocol, ok, latency_ms, error=None):
     ts = int(time.time())
     with session_scope() as session:
-        health = session.get(Health, node)
+        health = session.get(Health, (node, protocol))
         if health is None:
-            health = Health(node=node, ok=bool(ok), latency_ms=latency_ms, error=error or "", ts=ts)
+            health = Health(node=node, protocol=protocol, ok=bool(ok), latency_ms=latency_ms, error=error or "", ts=ts)
             session.add(health)
         else:
             health.ok = bool(ok)
@@ -76,6 +51,7 @@ def set_health(node, ok, latency_ms, error=None):
             health.ts = ts
         session.add(PollRun(
             node=node,
+            protocol=protocol,
             ok=bool(ok),
             latency_ms=latency_ms,
             error=error or "",
@@ -83,11 +59,11 @@ def set_health(node, ok, latency_ms, error=None):
         ))
 
 
-def accumulate(node, stats, online):
+def accumulate(node, protocol, stats, online):
     ts = int(time.time())
     with session_scope() as session:
         for user, traffic in stats.items():
-            previous = session.get(Previous, (node, user))
+            previous = session.get(Previous, (node, protocol, user))
             cur_up = int(traffic.get("uplink", 0))
             cur_down = int(traffic.get("downlink", 0))
             if previous is None:
@@ -103,9 +79,9 @@ def accumulate(node, stats, online):
             is_active = delta_up > 0 or delta_down > 0
             activity_bytes = delta_up + delta_down
 
-            total = session.get(Total, (node, user))
+            total = session.get(Total, (node, protocol, user))
             if total is None:
-                total = Total(node=node, user_name=user, uplink=0, downlink=0)
+                total = Total(node=node, protocol=protocol, user_name=user, uplink=0, downlink=0)
                 session.add(total)
             if is_active:
                 if not was_active:
@@ -115,7 +91,7 @@ def accumulate(node, stats, online):
                 total.uplink += delta_up
                 total.downlink += delta_down
                 total.last_seen = ts
-                session.add(Sample(node=node, user_name=user, ts=ts, uplink=delta_up, downlink=delta_down))
+                session.add(Sample(node=node, protocol=protocol, user_name=user, ts=ts, uplink=delta_up, downlink=delta_down))
             else:
                 total.active_since = None
                 total.active_bytes = 0
@@ -125,14 +101,14 @@ def accumulate(node, stats, online):
             total.active = is_active
 
             if previous is None:
-                session.add(Previous(node=node, user_name=user, uplink=cur_up, downlink=cur_down, was_active=is_active))
+                session.add(Previous(node=node, protocol=protocol, user_name=user, uplink=cur_up, downlink=cur_down, was_active=is_active))
             else:
                 previous.uplink = cur_up
                 previous.downlink = cur_down
                 previous.was_active = is_active
 
         current_users = set(stats)
-        totals = session.scalars(select(Total).where(Total.node == node)).all()
+        totals = session.scalars(select(Total).where(Total.node == node, Total.protocol == protocol)).all()
         for total in totals:
             if total.user_name in current_users:
                 continue
@@ -143,22 +119,22 @@ def accumulate(node, stats, online):
             total.active_since = None
             total.active_bytes = 0
 
-        previous_rows = session.scalars(select(Previous).where(Previous.node == node)).all()
+        previous_rows = session.scalars(select(Previous).where(Previous.node == node, Previous.protocol == protocol)).all()
         for previous in previous_rows:
             if previous.user_name not in current_users:
                 previous.was_active = False
 
 
-def mark_unavailable(node):
+def mark_unavailable(node, protocol):
     """Reset transient activity without treating a failed poll as traffic data."""
     with session_scope() as session:
-        totals = session.scalars(select(Total).where(Total.node == node)).all()
+        totals = session.scalars(select(Total).where(Total.node == node, Total.protocol == protocol)).all()
         for total in totals:
             total.online = False
             total.active = False
             total.active_since = None
             total.active_bytes = 0
-        previous_rows = session.scalars(select(Previous).where(Previous.node == node)).all()
+        previous_rows = session.scalars(select(Previous).where(Previous.node == node, Previous.protocol == protocol)).all()
         for previous in previous_rows:
             previous.was_active = False
 
@@ -197,28 +173,37 @@ def fetch_ssh(node, endpoint):
     return json.loads(result.stdout)
 
 
-def poll_node(node):
-    start = time.monotonic()
+def poll_node_protocol(node, protocol):
+    adapter = PROTOCOLS.get(protocol)
     name = node.get("name", "?")
+    if adapter is None:
+        LOG.warning("poll %s: unknown protocol %r, skipping", name, protocol)
+        return
+    start = time.monotonic()
     try:
         if node.get("host") == "127.0.0.1":
             base = f"http://127.0.0.1:{node['port']}"
-            raw = fetch_json(base + "/stats")
-            online_raw = fetch_json(base + "/online")
+            raw = fetch_json(base + adapter["local_stats"])
+            online_raw = fetch_json(base + adapter["local_online"])
         else:
-            raw = fetch_ssh(node, "stats")
-            online_raw = fetch_ssh(node, "online")
+            raw = fetch_ssh(node, adapter["ssh_stats"])
+            online_raw = fetch_ssh(node, adapter["ssh_online"])
         latency = int((time.monotonic() - start) * 1000)
-        accumulate(name, parse_stats(raw), parse_online(online_raw))
-        set_health(name, True, latency)
+        accumulate(name, protocol, adapter["parse_stats"](raw), adapter["parse_online"](online_raw))
+        set_health(name, protocol, True, latency)
     except Exception as exc:      # network, JSON, or DB errors must not kill the poller
         latency = int((time.monotonic() - start) * 1000)
-        LOG.warning("poll %s failed: %s", name, exc)
+        LOG.warning("poll %s/%s failed: %s", name, protocol, exc)
         try:
-            set_health(name, False, latency, exc.__class__.__name__)
-            mark_unavailable(name)
+            set_health(name, protocol, False, latency, exc.__class__.__name__)
+            mark_unavailable(name, protocol)
         except Exception as db_exc:      # last-ditch: a DB error must not crash the thread
-            LOG.error("record poll failure for %s: %s", name, db_exc)
+            LOG.error("record poll failure for %s/%s: %s", name, protocol, db_exc)
+
+
+def poll_node(node):
+    for protocol in node.get("protocols") or ["xray"]:
+        poll_node_protocol(node, protocol)
 
 
 def poll_loop():

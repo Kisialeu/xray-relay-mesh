@@ -1,21 +1,33 @@
 # Central Stats Service
 
-This service polls node-local Xray stats through restricted SSH commands and
-serves the statistics UI and JSON API. The terminal homepage and Nginx reverse
-proxy are deployed separately from `web/`.
+This service polls node-local protocol stats (Xray, and Hysteria2 on any node
+that has it enabled - see `stats/src/protocols.py`) through restricted SSH
+commands and serves the statistics UI and JSON API. The terminal homepage and
+Nginx reverse proxy are deployed separately from `web/`.
+
+Every table, and every row this service returns, is keyed by `(node,
+protocol, user)`, not just `(node, user)` - a node can run more than one
+protocol, each with its own independent traffic counter for the same user.
+Adding a further protocol beyond Xray/Hysteria2 later means adding one entry
+to `stats/src/protocols.py`'s `PROTOCOLS` dict, one matching entry to
+`deploy/assets/stats.py`'s `PROTOCOLS` dict, and one matching case to the SSH
+forced-command wrapper below - nothing else in the poller, schema, queries,
+or API changes.
 
 Node access model:
 
 ```text
-central stats service -> SSH stats-poller@<node.host> stats
-central stats service -> SSH stats-poller@<node.host> online
+central stats service -> SSH stats-poller@<node.host> xray:stats
+central stats service -> SSH stats-poller@<node.host> xray:online
+central stats service -> SSH stats-poller@<node.host> hysteria:stats   (only on nodes with hysteria enabled)
+central stats service -> SSH stats-poller@<node.host> hysteria:online  (only on nodes with hysteria enabled)
 ```
 
 Topology:
 
 ```text
 node A xray container
-  127.0.0.1:9091 stats wrapper
+  127.0.0.1:9091 stats wrapper (routes /xray/* and /hysteria/*)
   restricted stats-poller SSH account
         |
         | SSH on port 22
@@ -29,8 +41,12 @@ node B xray container
   optional HAProxy public :9092 stats endpoint
 ```
 
-The Xray stats wrapper stays bound to host loopback. Central polling uses SSH;
-the optional HAProxy endpoint is not used by the central service.
+The per-node stats wrapper stays bound to host loopback. Hysteria2's own
+`trafficStats` API is never published at all - the wrapper reaches it over
+the private docker network using a per-node secret
+(`nodes[].hysteria_stats_secret`, auto-generated and persisted by
+`deploy/deploy_nodes.sh`, same idiom as Reality keys). Central polling uses
+SSH; the optional HAProxy endpoint is not used by the central service.
 
 Required inventory fields:
 
@@ -57,15 +73,27 @@ Required inventory fields:
   "nodes": [
     {
       "name": "suomi",
-      "host": "37.27.24.71"
+      "host": "37.27.24.71",
+      "protocols": ["xray"]
+    },
+    {
+      "name": "turkey",
+      "host": "185.231.111.204",
+      "protocols": ["xray", "hysteria"],
+      "hysteria_stats_secret": "auto-generated-do-not-set-by-hand"
     }
   ]
 }
 ```
 
+`nodes[].protocols` defaults to `["xray"]` when omitted. `hysteria_stats_secret`
+is auto-generated per node by `deploy/deploy_nodes.sh` the first time that
+node has `hysteria` in its `protocols` - never needs to be set manually.
+
 The service uses SQLAlchemy ORM for database access. On startup it creates the
 schema and any missing indexes from `stats/src/models.py`. It does not provide
-general schema migrations.
+general schema migrations - a schema change (such as the `protocol` column
+added to every table) requires the reset procedure below before redeploying.
 
 Deploy the backend and Postgres to `stats.master_node` with Docker:
 

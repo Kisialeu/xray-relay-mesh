@@ -4,7 +4,7 @@ from sqlalchemy import case, func, select
 
 from config import ACTIVE_DURATION, HTTP_TIMEOUT, MIN_ACTIVITY_BYTES, ONLINE_WINDOW, POLL_INTERVAL
 from db import session_scope
-from inventory import node_names
+from inventory import node_names, node_protocol_pairs
 from models import Health, PollRun, Sample, Total
 
 
@@ -25,6 +25,7 @@ def _health_dict(item):
     ok, error = _health_status(item)
     return {
         "node": item.node,
+        "protocol": item.protocol,
         "ok": ok,
         "latency_ms": item.latency_ms,
         "error": error,
@@ -45,6 +46,7 @@ def _total_dict(item, available=True):
     )
     return {
         "node": item.node,
+        "protocol": item.protocol,
         "user": item.user_name,
         "uplink": item.uplink,
         "downlink": item.downlink,
@@ -59,96 +61,112 @@ def _total_dict(item, available=True):
 
 
 def health_rows():
-    allowed = node_names()
+    """One row per declared (node, protocol) pair - e.g. a node running both
+    xray and hysteria can be healthy on one and failing on the other."""
+    allowed = node_protocol_pairs()
     with session_scope() as session:
-        items = session.scalars(
-            select(Health).where(Health.node.in_(allowed)).order_by(Health.node)
-        ).all()
-        by_node = {item.node: _health_dict(item) for item in items}
+        items = session.scalars(select(Health)).all()
+        by_pair = {(item.node, item.protocol): _health_dict(item) for item in items}
         return [
-            by_node.get(node, {
+            by_pair.get((node, protocol), {
                 "node": node,
+                "protocol": protocol,
                 "ok": False,
                 "latency_ms": 0,
                 "error": "no poll data",
                 "ts": 0,
             })
-            for node in sorted(allowed)
+            for node, protocol in sorted(allowed)
         ]
 
 
+def _availability_by_node(nodes):
+    """node -> {protocol: is_available_bool}, for the given node names."""
+    with session_scope() as session:
+        items = session.scalars(select(Health).where(Health.node.in_(nodes))).all()
+    result = {}
+    for item in items:
+        result.setdefault(item.node, {})[item.protocol] = _health_status(item)[0]
+    return result
+
+
 def node_user_rows(node, period_seconds=None):
+    """One row per (protocol, user) tracked on this node."""
     if node not in node_names():
         return []
     period_start = int(time.time()) - int(period_seconds) if period_seconds else None
+    availability = _availability_by_node([node]).get(node, {})
     with session_scope() as session:
-        health = session.get(Health, node)
-        available = health is not None and _health_status(health)[0]
         items = session.scalars(
-            select(Total).where(Total.node == node).order_by(Total.user_name)
+            select(Total).where(Total.node == node).order_by(Total.protocol, Total.user_name)
         ).all()
-        result = [_total_dict(item, available) for item in items]
+        result = [_total_dict(item, availability.get(item.protocol, False)) for item in items]
         if period_start is not None:
             period_rows = session.execute(
                 select(
+                    Sample.protocol,
                     Sample.user_name,
                     func.sum(Sample.uplink).label("uplink"),
                     func.sum(Sample.downlink).label("downlink"),
                 )
                 .where(Sample.node == node, Sample.ts >= period_start)
-                .group_by(Sample.user_name)
+                .group_by(Sample.protocol, Sample.user_name)
             ).all()
             period = {
-                item.user_name: (int(item.uplink or 0), int(item.downlink or 0))
+                (item.protocol, item.user_name): (int(item.uplink or 0), int(item.downlink or 0))
                 for item in period_rows
             }
             for item in result:
-                period_up, period_down = period.get(item["user"], (0, 0))
+                period_up, period_down = period.get((item["protocol"], item["user"]), (0, 0))
                 item["period_uplink"] = period_up
                 item["period_downlink"] = period_down
                 item["period_total"] = period_up + period_down
-        return sorted(result, key=lambda item: (-item["total"], item["user"]))
+        return sorted(result, key=lambda item: (-item["total"], item["user"], item["protocol"]))
 
 
 def user_rows(period_seconds=None):
+    """One row per (node, protocol, user) tracked anywhere in the mesh."""
     allowed = node_names()
     period_start = int(time.time()) - int(period_seconds) if period_seconds else None
+    availability = _availability_by_node(allowed)
     with session_scope() as session:
-        health_items = session.scalars(select(Health).where(Health.node.in_(allowed))).all()
-        available = {item.node for item in health_items if _health_status(item)[0]}
         items = session.scalars(
-            select(Total).where(Total.node.in_(allowed)).order_by(Total.node, Total.user_name)
+            select(Total).where(Total.node.in_(allowed)).order_by(Total.node, Total.protocol, Total.user_name)
         ).all()
-        result = [_total_dict(item, item.node in available) for item in items]
+        result = [_total_dict(item, availability.get(item.node, {}).get(item.protocol, False)) for item in items]
         if period_start is not None:
             period_rows = session.execute(
                 select(
                     Sample.node,
+                    Sample.protocol,
                     Sample.user_name,
                     func.sum(Sample.uplink).label("uplink"),
                     func.sum(Sample.downlink).label("downlink"),
                 )
                 .where(Sample.node.in_(allowed), Sample.ts >= period_start)
-                .group_by(Sample.node, Sample.user_name)
+                .group_by(Sample.node, Sample.protocol, Sample.user_name)
             ).all()
             period = {
-                (item.node, item.user_name): (int(item.uplink or 0), int(item.downlink or 0))
+                (item.node, item.protocol, item.user_name): (int(item.uplink or 0), int(item.downlink or 0))
                 for item in period_rows
             }
             for item in result:
-                period_up, period_down = period.get((item["node"], item["user"]), (0, 0))
+                period_up, period_down = period.get((item["node"], item["protocol"], item["user"]), (0, 0))
                 item["period_uplink"] = period_up
                 item["period_downlink"] = period_down
                 item["period_total"] = period_up + period_down
-        return sorted(result, key=lambda item: (-item["total"], item["node"], item["user"]))
+        return sorted(result, key=lambda item: (-item["total"], item["node"], item["protocol"], item["user"]))
 
 
 def summary(period_seconds=None):
     return {"nodes": health_rows(), "users": user_rows(period_seconds)}
 
 
-def traffic_history(seconds=86400, bucket=300, node=None, user=None):
-    """Return bucketed mesh traffic with successful-poll coverage."""
+def traffic_history(seconds=86400, bucket=300, node=None, user=None, protocol=None):
+    """Return bucketed mesh traffic with successful-poll coverage. Coverage
+    is measured per (node, protocol) pair - the unit of one independently
+    pollable stats source - not per node, so a node with a partially-down
+    protocol shows partial coverage instead of looking fully covered."""
     now = int(time.time())
     start = now - int(seconds)
     bucket = int(bucket)
@@ -163,8 +181,14 @@ def traffic_history(seconds=86400, bucket=300, node=None, user=None):
     sample_bucket = Sample.ts - (Sample.ts % bucket)
     poll_bucket = PollRun.ts - (PollRun.ts % bucket)
     sample_filters = [Sample.node.in_(allowed), Sample.ts >= start]
+    poll_filters = [PollRun.node.in_(allowed), PollRun.ts >= start, PollRun.ok.is_(True)]
+    first_poll_filters = [PollRun.node.in_(allowed)]
     if user is not None:
         sample_filters.append(Sample.user_name == user)
+    if protocol is not None:
+        sample_filters.append(Sample.protocol == protocol)
+        poll_filters.append(PollRun.protocol == protocol)
+        first_poll_filters.append(PollRun.protocol == protocol)
     with session_scope() as session:
         traffic_rows = session.execute(
             select(
@@ -176,14 +200,14 @@ def traffic_history(seconds=86400, bucket=300, node=None, user=None):
             .group_by(sample_bucket)
         ).all()
         successful_poll_rows = session.execute(
-            select(poll_bucket.label("bucket"), PollRun.node)
-            .where(PollRun.node.in_(allowed), PollRun.ts >= start, PollRun.ok.is_(True))
-            .group_by(poll_bucket, PollRun.node)
+            select(poll_bucket.label("bucket"), PollRun.node, PollRun.protocol)
+            .where(*poll_filters)
+            .group_by(poll_bucket, PollRun.node, PollRun.protocol)
         ).all()
         first_poll_rows = session.execute(
-            select(PollRun.node, func.min(PollRun.ts).label("ts"))
-            .where(PollRun.node.in_(allowed))
-            .group_by(PollRun.node)
+            select(PollRun.node, PollRun.protocol, func.min(PollRun.ts).label("ts"))
+            .where(*first_poll_filters)
+            .group_by(PollRun.node, PollRun.protocol)
         ).all()
 
     traffic = {
@@ -192,24 +216,24 @@ def traffic_history(seconds=86400, bucket=300, node=None, user=None):
     }
     successful = {}
     for item in successful_poll_rows:
-        successful.setdefault(int(item.bucket), set()).add(item.node)
+        successful.setdefault(int(item.bucket), set()).add((item.node, item.protocol))
     first_polls = {
-        item.node: int(item.ts) - (int(item.ts) % bucket)
+        (item.node, item.protocol): int(item.ts) - (int(item.ts) % bucket)
         for item in first_poll_rows
     }
 
     series = []
     for timestamp in range(first_bucket, last_bucket + 1, bucket):
         values = traffic.get(timestamp)
-        expected_nodes = sum(node_first_bucket <= timestamp for node_first_bucket in first_polls.values())
-        is_legacy = expected_nodes == 0
-        successful_nodes = len(successful.get(timestamp, set()))
+        expected_sources = sum(first_bucket_ts <= timestamp for first_bucket_ts in first_polls.values())
+        is_legacy = expected_sources == 0
+        successful_sources = len(successful.get(timestamp, set()))
         if is_legacy:
             coverage = None
             available = values is not None
         else:
-            coverage = successful_nodes / expected_nodes
-            available = successful_nodes > 0
+            coverage = successful_sources / expected_sources
+            available = successful_sources > 0
         uplink, downlink = values if values is not None else (0, 0)
         series.append({
             "ts": timestamp,
@@ -281,7 +305,8 @@ def user_analytics(user, seconds=86400, bucket=300):
 
 
 def user_history(node, user, limit=96):
-    """Return recent per-poll traffic deltas for one node/user pair."""
+    """Return recent per-poll traffic deltas for one node/user, across
+    whichever protocols that user has traffic on for this node."""
     limit = max(1, min(int(limit), 500))
     with session_scope() as session:
         items = session.scalars(
@@ -291,13 +316,19 @@ def user_history(node, user, limit=96):
             .limit(limit)
         ).all()
         return [
-            {"ts": item.ts, "uplink": item.uplink, "downlink": item.downlink, "total": item.uplink + item.downlink}
+            {
+                "ts": item.ts,
+                "protocol": item.protocol,
+                "uplink": item.uplink,
+                "downlink": item.downlink,
+                "total": item.uplink + item.downlink,
+            }
             for item in reversed(items)
         ]
 
 
 def user_history_all(user, limit=500):
-    """Return recent traffic deltas for a user across all nodes."""
+    """Return recent traffic deltas for a user across all nodes/protocols."""
     limit = max(1, min(int(limit), 500))
     with session_scope() as session:
         items = session.scalars(
@@ -309,6 +340,7 @@ def user_history_all(user, limit=500):
         return [
             {
                 "node": item.node,
+                "protocol": item.protocol,
                 "ts": item.ts,
                 "uplink": item.uplink,
                 "downlink": item.downlink,
@@ -319,7 +351,8 @@ def user_history_all(user, limit=500):
 
 
 def node_history(node, limit=500):
-    """Return recent traffic totals per poll for one node."""
+    """Return recent traffic totals per poll for one node, summed across
+    every protocol running on it."""
     limit = max(1, min(int(limit), 500))
     if node not in node_names():
         return []

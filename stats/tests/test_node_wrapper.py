@@ -31,6 +31,46 @@ class NodeWrapperTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 wrapper.run(["xray", "api"])
 
+    def test_protocols_registry_exposes_xray_and_hysteria(self):
+        self.assertEqual(set(wrapper.PROTOCOLS), {"xray", "hysteria"})
+        for protocol, endpoints in wrapper.PROTOCOLS.items():
+            self.assertEqual(set(endpoints), {"stats", "online"})
+
+    def test_fetch_hysteria_requires_secret_and_port(self):
+        with patch.object(wrapper, "HYSTERIA_STATS_SECRET", ""), \
+             patch.object(wrapper, "HYSTERIA_STATS_PORT", "9999"):
+            with self.assertRaises(RuntimeError):
+                wrapper.fetch_hysteria("/traffic")
+
+    def test_fetch_hysteria_sends_authorization_header(self):
+        response = json.dumps({"alice": {"tx": 1, "rx": 2}}).encode()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return response
+
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            captured["headers"] = dict(req.header_items())
+            return FakeResponse()
+
+        with patch.object(wrapper, "HYSTERIA_STATS_SECRET", "s3cret"), \
+             patch.object(wrapper, "HYSTERIA_STATS_PORT", "9999"), \
+             patch.object(wrapper.urllib.request, "urlopen", fake_urlopen):
+            result = wrapper.fetch_hysteria("/traffic")
+
+        self.assertEqual(result, {"alice": {"tx": 1, "rx": 2}})
+        self.assertEqual(captured["url"], "http://hysteria:9999/traffic")
+        self.assertEqual(captured["headers"].get("Authorization"), "s3cret")
+
 
 if __name__ == "__main__":
     unittest.main()

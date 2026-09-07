@@ -63,25 +63,62 @@
     }
   }
 
+  function groupByNode(rows) {
+    const grouped = new Map();
+    rows.forEach((row) => {
+      if (!grouped.has(row.node)) grouped.set(row.node, []);
+      grouped.get(row.node).push(row);
+    });
+    return grouped;
+  }
+
+  // One card per server, its protocols listed together inside it - a node
+  // running xray+hysteria2 is one thing with two health streams, not two
+  // unrelated rows.
   function renderNodes(nodes, users = []) {
     const target = document.getElementById("nodes");
     if (!target) return;
-    document.getElementById("node-count").textContent = `${nodes.length} node${nodes.length === 1 ? "" : "s"}`;
-    target.innerHTML = nodes.length ? nodes.map((node) => `<tr>
-      <td><a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(node.node)}">${escapeHtml(node.node)}</a></td><td><span class="state ${node.ok ? "ok" : "bad"}">${node.ok ? "OK" : "DOWN"}</span></td>
-      <td>${Number(node.latency_ms) || 0} ms</td><td>${users.filter((user) => user.node === node.node && user.online).length}</td><td class="muted">${escapeHtml(node.error || "-")}</td><td>${date(node.ts)}</td>
-    </tr>`).join("") : `<tr><td colspan="6" class="empty">No node data yet.</td></tr>`;
+    const grouped = groupByNode(nodes);
+    document.getElementById("node-count").textContent = `${grouped.size} node${grouped.size === 1 ? "" : "s"}`;
+    const cards = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nodeName, rows]) => {
+      const allOk = rows.every((row) => row.ok);
+      const anyOk = rows.some((row) => row.ok);
+      const overallClass = allOk ? "ok" : (anyOk ? "pending" : "bad");
+      const overallLabel = allOk ? "OK" : (anyOk ? "DEGRADED" : "DOWN");
+      const onlineTotal = new Set(users.filter((user) => user.node === nodeName && user.online).map((user) => user.user)).size;
+      const lastPoll = Math.max(0, ...rows.map((row) => Number(row.ts) || 0));
+      const protocolRows = rows.slice().sort((a, b) => a.protocol.localeCompare(b.protocol)).map((row) => {
+        const online = new Set(
+          users.filter((user) => user.node === nodeName && user.protocol === row.protocol && user.online).map((user) => user.user)
+        ).size;
+        const errorLine = !row.ok && row.error ? `<div class="node-card-protocol-error">${escapeHtml(row.error)}</div>` : "";
+        return `<div class="node-card-protocol">
+          <span class="protocol-badge">${escapeHtml(row.protocol)}</span>
+          <span class="node-card-protocol-meta"><span class="state ${row.ok ? "ok" : "bad"}">${row.ok ? "OK" : "DOWN"}</span><span>${Number(row.latency_ms) || 0} ms</span><span>${online} online</span></span>
+        </div>${errorLine}`;
+      }).join("");
+      return `<article class="node-card">
+        <div class="node-card-head">
+          <a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(nodeName)}">${escapeHtml(nodeName)}</a>
+          <span class="status-pill ${overallClass}">${overallLabel}</span>
+        </div>
+        <div class="node-card-protocols">${protocolRows}</div>
+        <div class="node-card-foot"><span>${onlineTotal} online</span><span>Last poll ${date(lastPoll)}</span></div>
+      </article>`;
+    }).join("");
+    target.innerHTML = cards || `<div class="empty">No node data yet.</div>`;
   }
 
   function aggregateUsers(users) {
     const grouped = new Map();
     users.forEach((item) => {
       const current = grouped.get(item.user) || {
-        user: item.user, nodes: [], total: 0, uplink: 0, downlink: 0,
+        user: item.user, nodes: [], protocols: [], total: 0, uplink: 0, downlink: 0,
         period_total: 0, period_uplink: 0, period_downlink: 0,
         online: false, online_nodes: [], active: false, available: false, last_seen: 0
       };
       current.nodes.push(item.node);
+      current.protocols.push(item.protocol);
       current.total += Number(item.total || 0);
       current.uplink += Number(item.uplink || 0);
       current.downlink += Number(item.downlink || 0);
@@ -97,6 +134,7 @@
     });
     return [...grouped.values()].map((item) => {
       item.nodes = [...new Set(item.nodes)].sort();
+      item.protocols = [...new Set(item.protocols)].sort();
       item.online_nodes = [...new Set(item.online_nodes)].sort();
       return item;
     });
@@ -120,9 +158,11 @@
     });
     target.innerHTML = visible.length ? visible.map((user) => `<tr>
       <td><a class="user-link" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">${escapeHtml(user.user)}</a></td>
-      <td>${user.nodes.map(escapeHtml).join(", ")}</td><td>${bytes(user.period_total)}</td><td>${periodTotal ? `${(user.period_total / periodTotal * 100).toFixed(1)}%` : "-"}</td><td>${bytes(user.total)}</td>
+      <td>${user.nodes.map(escapeHtml).join(", ")}</td>
+      <td><span class="protocol-badge-row">${user.protocols.map((protocol) => `<span class="protocol-badge">${escapeHtml(protocol)}</span>`).join("")}</span></td>
+      <td>${bytes(user.period_total)}</td><td>${periodTotal ? `${(user.period_total / periodTotal * 100).toFixed(1)}%` : "-"}</td><td>${bytes(user.total)}</td>
       <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td><td class="${user.online ? "yes" : "muted"}">${user.online_nodes.length ? user.online_nodes.map(escapeHtml).join(", ") : "-"}</td><td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
-    </tr>`).join("") : `<tr><td colspan="9" class="empty">No matching users.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="10" class="empty">No matching users.</td></tr>`;
   }
 
   function renderTrafficChart(data, targetId, coverageId) {
@@ -221,12 +261,12 @@
     const target = document.getElementById("user-nodes-table");
     if (!target) return;
     target.innerHTML = users.length ? users.map((user) => `<tr>
-      <td><a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(user.node)}">${escapeHtml(user.node)}</a></td><td>${bytes(user.period_total)}</td><td>${bytes(user.period_uplink)}</td><td>${bytes(user.period_downlink)}</td>
+      <td><a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(user.node)}">${escapeHtml(user.node)}</a></td><td><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td><td>${bytes(user.period_total)}</td><td>${bytes(user.period_uplink)}</td><td>${bytes(user.period_downlink)}</td>
       <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td>
       <td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
-    </tr>`).join("") : `<tr><td colspan="7" class="empty">No node traffic recorded for this user.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="8" class="empty">No node traffic recorded for this user.</td></tr>`;
     const count = document.getElementById("node-sample-count");
-    if (count) count.textContent = `${users.length} node${users.length === 1 ? "" : "s"}`;
+    if (count) count.textContent = `${users.length} stream${users.length === 1 ? "" : "s"}`;
   }
 
   async function loadUser() {
@@ -267,11 +307,24 @@
     if (!target) return;
     target.innerHTML = users.length ? users.map((user) => `<tr>
       <td><a class="user-link" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">${escapeHtml(user.user)}</a></td>
+      <td><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td>
       <td>${bytes(user.period_total)}</td><td>${bytes(user.period_uplink)}</td><td>${bytes(user.period_downlink)}</td>
       <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td>
       <td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
-    </tr>`).join("") : `<tr><td colspan="7" class="empty">No users recorded on this node.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="8" class="empty">No users recorded on this node.</td></tr>`;
     setText("node-user-count", `${users.length} user${users.length === 1 ? "" : "s"}`);
+  }
+
+  function renderNodeProtocols(healthRows) {
+    const target = document.getElementById("node-protocol-strip");
+    if (!target) return;
+    target.innerHTML = healthRows.slice().sort((a, b) => a.protocol.localeCompare(b.protocol)).map((row) => `
+      <span class="protocol-status-chip">
+        <span class="protocol-badge">${escapeHtml(row.protocol)}</span>
+        <span class="state ${row.ok ? "ok" : "bad"}">${row.ok ? "OK" : "DOWN"}</span>
+        <span class="muted">${Number(row.latency_ms) || 0} ms</span>
+        ${!row.ok && row.error ? `<span class="muted">- ${escapeHtml(row.error)}</span>` : ""}
+      </span>`).join("");
   }
 
   function renderNodeSamples(samples) {
@@ -297,14 +350,18 @@
         api(`/api/nodes/${encodeURIComponent(nodeName)}/history`)
       ]);
       if (requestedRange !== state.rangeSeconds) return;
-      const health = nodes.find((item) => item.node === nodeName);
-      if (!health) throw new Error("Node not found");
+      const healthRows = nodes.filter((item) => item.node === nodeName);
+      if (!healthRows.length) throw new Error("Node not found");
+      const allOk = healthRows.every((item) => item.ok);
+      const anyOk = healthRows.some((item) => item.ok);
+      const healthyCount = healthRows.filter((item) => item.ok).length;
+      renderNodeProtocols(healthRows);
       const total = users.reduce((sum, item) => sum + Number(item.period_total || 0), 0);
       const upload = users.reduce((sum, item) => sum + Number(item.period_uplink || 0), 0);
       const download = users.reduce((sum, item) => sum + Number(item.period_downlink || 0), 0);
-      const online = users.filter((item) => item.online).length;
-      setText("node-status", health.ok ? "OK" : "DOWN");
-      setText("node-status-note", health.ok ? "poll successful" : (health.error || "poll failed"));
+      const online = new Set(users.filter((item) => item.online).map((item) => item.user)).size;
+      setText("node-status", allOk ? "OK" : (anyOk ? "DEGRADED" : "DOWN"));
+      setText("node-status-note", `${healthyCount}/${healthRows.length} protocol${healthRows.length === 1 ? "" : "s"} healthy`);
       setText("node-availability", analytics.availability === null ? "-" : `${(analytics.availability * 100).toFixed(2)}%`);
       setText("node-poll-summary", `${analytics.successful_polls}/${analytics.polls} polls, avg ${analytics.average_latency_ms ?? "-"} ms`);
       setText("node-total", bytes(total));
@@ -317,7 +374,7 @@
       setText("node-user-count", `${analytics.active_users} active / ${users.length} tracked`);
       renderTrafficChart(analytics.traffic, "node-traffic-chart", "node-traffic-coverage");
       renderNodeSamples(samples);
-      setConnection(health.ok ? "ok" : "bad", health.ok ? "LIVE" : "DEGRADED");
+      setConnection(allOk ? "ok" : (anyOk ? "pending" : "bad"), allOk ? "LIVE" : (anyOk ? "DEGRADED" : "DOWN"));
       document.getElementById("access-error")?.classList.add("hidden");
     } catch (error) { showError(error.message); }
   }

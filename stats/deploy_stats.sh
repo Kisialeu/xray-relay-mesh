@@ -72,11 +72,17 @@ bootstrap_ssh_polling() {
     pub="$(ssh_run "$master_host" "sudo cat '$next_pub_path'")"
     [ -n "$pub" ] || { error "failed to read generated stats SSH public key"; return 1; }
 
+    # Explicit allowlist by design (never a dynamic/open pass-through over
+    # SSH) - adding a future protocol means adding two more case lines here
+    # to match its two new entries in deploy/assets/stats.py's PROTOCOLS
+    # dict, nothing else about this forced-command mechanism changes.
     wrapper='#!/bin/sh
 set -eu
 case "${SSH_ORIGINAL_COMMAND:-}" in
-    stats) exec curl -fsS --max-time 5 http://127.0.0.1:9091/stats ;;
-    online) exec curl -fsS --max-time 5 http://127.0.0.1:9091/online ;;
+    xray:stats) exec curl -fsS --max-time 5 http://127.0.0.1:9091/xray/stats ;;
+    xray:online) exec curl -fsS --max-time 5 http://127.0.0.1:9091/xray/online ;;
+    hysteria:stats) exec curl -fsS --max-time 5 http://127.0.0.1:9091/hysteria/stats ;;
+    hysteria:online) exec curl -fsS --max-time 5 http://127.0.0.1:9091/hysteria/online ;;
     *) exit 126 ;;
 esac
 '
@@ -172,7 +178,8 @@ jq '{
         name,
         friendly_name,
         host,
-        stats_host
+        stats_host,
+        protocols: (.protocols // ["xray"])
     } | with_entries(select(.value != null))]
 }' "$INVENTORY" > "$stage/inventory.json"
 

@@ -6,23 +6,36 @@
 #
 # Usage:
 #   relay-mesh/mesh.sh                          interactive menu
-#   relay-mesh/mesh.sh deploy-node <name>        deploy Xray to one node
-#   relay-mesh/mesh.sh deploy-nodes              deploy Xray to ALL nodes
+#
+#   -- everything --
+#   relay-mesh/mesh.sh deploy-all                deploy-nodes -> deploy-stats -> subs-generate -> subs-sync
+#
+#   -- xray / hysteria2 --
+#   relay-mesh/mesh.sh deploy-node <name>        deploy Xray to one node (and Hysteria2, if enabled)
+#   relay-mesh/mesh.sh deploy-nodes              deploy Xray to ALL nodes (and Hysteria2, if enabled)
+#
+#   -- relay mesh --
 #   relay-mesh/mesh.sh deploy-relay <name>       deploy relay mesh to one node
 #   relay-mesh/mesh.sh deploy-relay-all          deploy relay mesh to ALL nodes
 #   relay-mesh/mesh.sh deploy-stack-all          deploy Xray then relay to ALL nodes
+#   relay-mesh/mesh.sh rollback <name>           roll back relay config on one node
+#
+#   -- subscriptions --
 #   relay-mesh/mesh.sh deploy-caddy               deploy/update Caddy on subs.caddy_host
 #   relay-mesh/mesh.sh subs-generate             generate subscriptions (local only)
 #   relay-mesh/mesh.sh subs-sync                 sync generated subscriptions to Caddy
-#   relay-mesh/mesh.sh rollback <name>           roll back relay config on one node
+#
+#   -- statistics --
+#   relay-mesh/mesh.sh stats                     open SSH tunnel to central stats UI/API
+#   relay-mesh/mesh.sh deploy-stats               deploy central stats backend to stats.master_node
+#   relay-mesh/mesh.sh deploy-web                 deploy stats web + Certbot/Nginx to stats.master_node
+#
+#   -- node and certificate management --
 #   relay-mesh/mesh.sh prune-node <name>         remove remote Xray/relay deployment, keep inventory entry
+#   relay-mesh/mesh.sh reset-node <name>         hard-reset a node for redeployment
 #   relay-mesh/mesh.sh remove-node <name>        decommission a node
 #   relay-mesh/mesh.sh cert-setup                set up CDN cert (from inventory.json's subs block)
 #   relay-mesh/mesh.sh cert-destroy               tear down CDN cert
-#   relay-mesh/mesh.sh stats                     open SSH tunnel to central stats UI/API
-#   relay-mesh/mesh.sh deploy-stats              deploy central stats backend to stats.master_node
-#   relay-mesh/mesh.sh deploy-web                deploy stats web + Certbot/Nginx to stats.master_node
-#   relay-mesh/mesh.sh reset-node <name>    hard-reset a node for redeployment
 #
 # Env:
 #   INVENTORY   - inventory.json path (default: relay-mesh/inventory.json)
@@ -81,6 +94,25 @@ confirm_action() {
     esac
 }
 
+# ---- everything ----
+
+run_deploy_all() {
+    info "1/4 Deploying Xray/Hysteria2 to all nodes"
+    "$SCRIPT_DIR/deploy/deploy_nodes.sh" all "$INVENTORY" \
+        || { error "Full deployment stopped: node deployment failed"; return 1; }
+    info "2/4 Deploying central stats backend"
+    "$SCRIPT_DIR/stats/deploy_stats.sh" "$INVENTORY" \
+        || { error "Full deployment stopped: stats deployment failed"; return 1; }
+    info "3/4 Generating subscriptions"
+    "$SCRIPT_DIR/subs/generate_subscriptions.sh" "$INVENTORY" \
+        || { error "Full deployment stopped: subscription generation failed"; return 1; }
+    info "4/4 Syncing subscriptions to Caddy"
+    "$SCRIPT_DIR/subs/sync_subscriptions.sh" "$INVENTORY" \
+        || { error "Full deployment failed: subscription sync failed"; return 1; }
+}
+
+# ---- xray / hysteria2 ----
+
 run_deploy_node_one() {
     local node
     node="$(prompt_node)" || return 1
@@ -90,6 +122,9 @@ run_deploy_node_all() {
     confirm_action "Deploy Xray to every node?" || return 0
     "$SCRIPT_DIR/deploy/deploy_nodes.sh" all "$INVENTORY"
 }
+
+# ---- relay mesh ----
+
 run_deploy_stack_all() {
     info "Deploying Xray to all nodes before deploying relay mesh"
     "$SCRIPT_DIR/deploy/deploy_nodes.sh" all "$INVENTORY" \
@@ -106,19 +141,36 @@ run_deploy_relay_all() {
     confirm_action "Deploy relay routing to every node?" || return 0
     "$SCRIPT_DIR/relay/deploy_mesh.sh" all "$INVENTORY"
 }
-run_deploy_caddy()     { "$SCRIPT_DIR/caddy/deploy_caddy.sh" "$INVENTORY"; }
-run_subs_generate()    { "$SCRIPT_DIR/subs/generate_subscriptions.sh" "$INVENTORY"; }
-run_subs_sync()        { "$SCRIPT_DIR/subs/sync_subscriptions.sh" "$INVENTORY"; }
 run_rollback() {
     local node
     node="$(prompt_node)" || return 1
     "$SCRIPT_DIR/relay/rollback_mesh.sh" "$node" "$INVENTORY"
 }
+
+# ---- subscriptions ----
+
+run_deploy_caddy()     { "$SCRIPT_DIR/caddy/deploy_caddy.sh" "$INVENTORY"; }
+run_subs_generate()    { "$SCRIPT_DIR/subs/generate_subscriptions.sh" "$INVENTORY"; }
+run_subs_sync()        { "$SCRIPT_DIR/subs/sync_subscriptions.sh" "$INVENTORY"; }
+
+# ---- statistics ----
+
+run_stats()            { "$SCRIPT_DIR/stats/tunnel_stats.sh" "$INVENTORY"; }
+run_deploy_stats()     { "$SCRIPT_DIR/stats/deploy_stats.sh" "$INVENTORY"; }
+run_deploy_web()       { "$SCRIPT_DIR/web/deploy_web.sh" "$INVENTORY"; }
+
+# ---- node and certificate management ----
+
 run_prune_node() {
     local node
     node="$(prompt_node)" || return 1
     confirm_action "Remove deployed Xray and relay files from '$node' but keep its inventory entry?" || return 0
     "$SCRIPT_DIR/prune-node/prune_node.sh" "$node" "$INVENTORY"
+}
+run_reset_node() {
+    local node
+    node="$(prompt_node)" || return 1
+    "$SCRIPT_DIR/reset-node/reset_node.sh" "$node" "$INVENTORY"
 }
 run_remove_node() {
     local node
@@ -131,14 +183,6 @@ run_cert_destroy()     {
     confirm_action "Destroy the CloudFront/CDN certificate stack?" || return 0
     "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY"
 }
-run_stats()            { "$SCRIPT_DIR/stats/tunnel_stats.sh" "$INVENTORY"; }
-run_deploy_stats()     { "$SCRIPT_DIR/stats/deploy_stats.sh" "$INVENTORY"; }
-run_deploy_web()       { "$SCRIPT_DIR/web/deploy_web.sh" "$INVENTORY"; }
-run_reset_node() {
-    local node
-    node="$(prompt_node)" || return 1
-    "$SCRIPT_DIR/reset-node/reset_node.sh" "$node" "$INVENTORY"
-}
 
 menu_title() {
     echo ""
@@ -149,11 +193,12 @@ menu_title() {
 
 show_main_menu() {
     menu_title
-    echo "  1) Xray deployment"
-    echo "  2) Relay routing"
-    echo "  3) Subscriptions"
-    echo "  4) Statistics"
-    echo "  5) Node and certificate management"
+    echo "  1) Deploy everything (nodes + stats + subs)"
+    echo "  2) Xray deployment"
+    echo "  3) Relay routing"
+    echo "  4) Subscriptions"
+    echo "  5) Statistics"
+    echo "  6) Node and certificate management"
     echo "  q) Quit"
     echo "================================================"
 }
@@ -299,11 +344,14 @@ interactive_menu() {
         show_main_menu
         read -r -p "Choose a section: " choice || exit 0
         case "$choice" in
-            1) xray_menu ;;
-            2) relay_menu ;;
-            3) subscriptions_menu ;;
-            4) statistics_menu ;;
-            5) management_menu ;;
+            1) confirm_action "Deploy Xray/Hysteria2 to every node, redeploy the stats backend, and sync subscriptions?" \
+                   && run_deploy_all
+               pause ;;
+            2) xray_menu ;;
+            3) relay_menu ;;
+            4) subscriptions_menu ;;
+            5) statistics_menu ;;
+            6) management_menu ;;
             q|Q|0) exit 0 ;;
             *) echo "Invalid option: $choice" ;;
         esac
@@ -320,23 +368,36 @@ fi
 
 CMD="$1"; shift
 case "$CMD" in
+    # -- everything --
+    deploy-all)       run_deploy_all ;;
+
+    # -- xray / hysteria2 --
     deploy-node)      "$SCRIPT_DIR/deploy/deploy_nodes.sh" "${1:?node name required}" "$INVENTORY" ;;
     deploy-nodes)     "$SCRIPT_DIR/deploy/deploy_nodes.sh" all "$INVENTORY" ;;
+
+    # -- relay mesh --
     deploy-stack-all) run_deploy_stack_all ;;
     deploy-relay)     "$SCRIPT_DIR/relay/deploy_mesh.sh" "${1:?node name required}" "$INVENTORY" ;;
     deploy-relay-all) "$SCRIPT_DIR/relay/deploy_mesh.sh" all "$INVENTORY" ;;
+    rollback)         "$SCRIPT_DIR/relay/rollback_mesh.sh" "${1:?node name required}" "$INVENTORY" ;;
+
+    # -- subscriptions --
     deploy-caddy)     "$SCRIPT_DIR/caddy/deploy_caddy.sh" "$INVENTORY" ;;
     subs-generate)    "$SCRIPT_DIR/subs/generate_subscriptions.sh" "$INVENTORY" ;;
     subs-sync)        "$SCRIPT_DIR/subs/sync_subscriptions.sh" "$INVENTORY" ;;
-    rollback)         "$SCRIPT_DIR/relay/rollback_mesh.sh" "${1:?node name required}" "$INVENTORY" ;;
-    prune-node)       "$SCRIPT_DIR/prune-node/prune_node.sh" "${1:?node name required}" "$INVENTORY" "${2:-}" "${3:-}" ;;
-    remove-node)      "$SCRIPT_DIR/remove-node/remove_node.sh" "${1:?node name required}" "$INVENTORY" ;;
-    cert-setup)       "$SCRIPT_DIR/certs/setup_cdn_cert.sh" "$INVENTORY" ;;
-    cert-destroy)     "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY" ;;
+
+    # -- statistics --
     stats)            "$SCRIPT_DIR/stats/tunnel_stats.sh" "$INVENTORY" ;;
     deploy-stats)     "$SCRIPT_DIR/stats/deploy_stats.sh" "$INVENTORY" ;;
     deploy-web)       "$SCRIPT_DIR/web/deploy_web.sh" "$INVENTORY" ;;
+
+    # -- node and certificate management --
+    prune-node)       "$SCRIPT_DIR/prune-node/prune_node.sh" "${1:?node name required}" "$INVENTORY" "${2:-}" "${3:-}" ;;
     reset-node)       "$SCRIPT_DIR/reset-node/reset_node.sh" "${1:?node name required}" "$INVENTORY" ;;
+    remove-node)      "$SCRIPT_DIR/remove-node/remove_node.sh" "${1:?node name required}" "$INVENTORY" ;;
+    cert-setup)       "$SCRIPT_DIR/certs/setup_cdn_cert.sh" "$INVENTORY" ;;
+    cert-destroy)     "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY" ;;
+
     *)
         echo "Unknown command: $CMD" >&2
         echo "Run with no arguments for the interactive menu, or see this script's header comment for subcommands." >&2

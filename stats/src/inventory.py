@@ -24,6 +24,7 @@ def load_inventory():
              "port": local_port,
              "ssh_user": ssh_user,
              "ssh_port": ssh_port,
+             "protocols": node.get("protocols") or ["xray"],
          })
     return nodes
 
@@ -35,6 +36,17 @@ def load_raw_inventory():
 
 def node_names():
     return {node["name"] for node in load_raw_inventory().get("nodes", [])}
+
+
+def node_protocol_pairs():
+    """Every valid (node, protocol) combination declared in the inventory -
+    the unit of "one independently pollable stats source" now that a node
+    can run more than one protocol (see stats/src/protocols.py)."""
+    pairs = set()
+    for node in load_raw_inventory().get("nodes", []):
+        for protocol in node.get("protocols") or ["xray"]:
+            pairs.add((node["name"], protocol))
+    return pairs
 
 
 def master_node():

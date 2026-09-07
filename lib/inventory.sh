@@ -139,17 +139,36 @@ inv_validate() {
         fi
     fi
 
-    if [ "$(inv_hysteria_enabled "$file")" = "true" ]; then
+    local bad_protocols
+    bad_protocols=$(jq -r '
+        .nodes[]
+        | select(.protocols != null)
+        | select((.protocols | index("xray")) == null or ((.protocols - ["xray", "hysteria"]) | length) > 0)
+        | .name
+    ' "$file")
+    if [ -n "$bad_protocols" ]; then
+        error "node(s) protocols must include \"xray\" and contain only xray/hysteria: $bad_protocols"
+        return 1
+    fi
+
+    local hysteria_nodes
+    hysteria_nodes=$(jq -r '.nodes[] | select((.protocols // ["xray"]) | index("hysteria")) | .name' "$file")
+    if [ -n "$hysteria_nodes" ]; then
         local hysteria_email missing_tls_domain
         hysteria_email=$(inv_hysteria_acme_email "$file")
         if [ -z "$hysteria_email" ]; then
-            error "hysteria.enabled=true requires hysteria.acme_email"
+            error "hysteria.acme_email is required when any node has \"hysteria\" in its protocols: $hysteria_nodes"
             return 1
         fi
 
-        missing_tls_domain=$(jq -r '.nodes[] | select((.tls_domain // "") == "") | .name' "$file")
+        missing_tls_domain=$(jq -r '
+            .nodes[]
+            | select((.protocols // ["xray"]) | index("hysteria"))
+            | select((.tls_domain // "") == "")
+            | .name
+        ' "$file")
         if [ -n "$missing_tls_domain" ]; then
-            error "hysteria.enabled=true requires tls_domain on every node (ACME cannot issue for a bare IP), missing on: $missing_tls_domain"
+            error "node(s) with \"hysteria\" in protocols require tls_domain (ACME cannot issue for a bare IP): $missing_tls_domain"
             return 1
         fi
     fi
@@ -277,18 +296,67 @@ inv_image_warp()    { jq -r '.images.warp // "caomingjun/warp:latest"' "$1"; }
 inv_image_adguard() { jq -r '.images.adguard // "adguard/adguardhome:latest"' "$1"; }
 inv_image_hysteria() { jq -r '.images.hysteria // "tobyxdd/hysteria:latest"' "$1"; }
 
-# ---- hysteria2 (see inventory.json "hysteria" block; per-node "tls_domain") ----
+# ---- hysteria2 (see inventory.json "hysteria" block; per-node "protocols"/"tls_domain") ----
 # Hysteria2 (github.com/apernet/hysteria, image tobyxdd/hysteria) is a
 # separate UDP/QUIC server, not an Xray protocol - it runs as its own
 # container, direct-connect only (no HAProxy relay - relay/lib/render.sh is
-# TCP passthrough only by design). It needs a real ACME cert, and Let's
-# Encrypt cannot issue one for a bare IP, so each node needs its own
-# "tls_domain" pointed at that node's host - separate from
-# "host"/direct_port, which stay the actual connect address in links.
-inv_hysteria_enabled()        { jq -r '.hysteria.enabled // false' "$1"; }
+# TCP passthrough only by design). Every node always runs Xray (the relay
+# mesh backbone); a node additionally runs Hysteria2 only if "hysteria" is
+# in its "protocols" array (default: ["xray"] only - opt-in per node, NOT
+# a single mesh-wide switch, since each node needs its own ACME cert/domain).
+# It needs a real ACME cert, and Let's Encrypt cannot issue one for a bare
+# IP, so each opted-in node needs its own "tls_domain" pointed at that
+# node's host - separate from "host"/direct_port, which stay the actual
+# connect address in links.
 inv_hysteria_acme_email()     { jq -r '.hysteria.acme_email // ""' "$1"; }
 inv_hysteria_masquerade_url() { jq -r '.hysteria.masquerade_url // ""' "$1"; }
 inv_hysteria_up_mbps()        { jq -r '.hysteria.up_mbps // 200' "$1"; }
 inv_hysteria_down_mbps()      { jq -r '.hysteria.down_mbps // 200' "$1"; }
+# Optional Salamander obfuscation (shared across every hysteria-enabled node,
+# same as acme_email/masquerade_url) - disguises the QUIC handshake so it
+# doesn't fingerprint as QUIC to DPI-based traffic shaping. Off (no obfs
+# block rendered, no obfs params in links) when left empty.
+inv_hysteria_obfs_password()  { jq -r '.hysteria.obfs_password // ""' "$1"; }
+# Fixed container-internal port for Hysteria2's own built-in trafficStats API
+# (see https://v2.hysteria.network/docs/advanced/Traffic-Stats-API/) - never
+# published to the host, same treatment as Xray's own gRPC API port 10085.
+inv_hysteria_stats_port()     { jq -r '.hysteria.stats_port // 9999' "$1"; }
 
 inv_node_tls_domain() { inv_node_field "$1" "$2" tls_domain; }
+
+# Per-node trafficStats secret (auto-generated and persisted the same way as
+# xray.reality keys - see generate_hysteria_stats_secrets_if_missing in
+# deploy/deploy_nodes.sh). Deliberately per-node, not shared like
+# acme_email/obfs_password: this secret never leaves the node (stats.py
+# reads it from .env to call hysteria's API over the private docker network
+# on that same host only), so there is no operational cost to keeping every
+# node's secret independent - only a security upside.
+inv_node_hysteria_stats_secret() { inv_node_field "$1" "$2" hysteria_stats_secret; }
+
+inv_node_set_hysteria_stats_secret() {
+    local file="$1" name="$2" secret="$3"
+    local tmp
+    tmp="$(mktemp)"
+    jq --arg n "$name" --arg s "$secret" \
+        '.nodes |= map(if .name == $n then .hysteria_stats_secret = $s else . end)' \
+        "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
+# Generic per-node protocol membership check ("true"/"false" string, same
+# convention as inv_stats_expose_haproxy etc.) - reusable for any protocol
+# added to nodes[].protocols later, not just xray/hysteria.
+inv_node_has_protocol() {
+    local file="$1" name="$2" proto="$3"
+    jq -r --arg n "$name" --arg p "$proto" '
+        (.nodes[] | select(.name == $n) | (.protocols // ["xray"]) | any(. == $p))
+    ' "$file"
+}
+
+# Names of every node with $2 in its protocols, one per line.
+inv_protocol_node_names() {
+    local file="$1" proto="$2"
+    jq -r --arg p "$proto" '.nodes[] | select((.protocols // ["xray"]) | index($p)) | .name' "$file"
+}
+
+inv_node_has_hysteria()  { inv_node_has_protocol "$1" "$2" hysteria; }
+inv_hysteria_node_names() { inv_protocol_node_names "$1" hysteria; }

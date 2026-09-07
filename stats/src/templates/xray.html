@@ -34,12 +34,12 @@
 
     <section class="panel">
       <div class="panel-heading"><div><p class="eyebrow">INFRASTRUCTURE</p><h2>Nodes</h2></div><span class="panel-count" id="node-count">0 nodes</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Node</th><th>Status</th><th>Latency</th><th>Connected users</th><th>Error</th><th>Last poll</th></tr></thead><tbody id="nodes"><tr><td colspan="6" class="empty">Loading node health...</td></tr></tbody></table></div>
+      <div id="nodes" class="node-card-grid"><div class="empty">Loading node health...</div></div>
     </section>
 
     <section class="panel">
       <div class="panel-heading users-heading"><div><p class="eyebrow">ACCOUNT TRAFFIC</p><h2>Users</h2></div><div class="table-controls"><label class="search-box"><span class="sr-only">Filter users</span><input id="user-filter" type="search" placeholder="Filter user or node" autocomplete="off"></label><label class="range-control"><span class="sr-only">Filter status</span><select id="status-filter"><option value="all">All states</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">Unknown</option></select></label></div></div>
-      <div class="table-wrap"><table><thead><tr><th><button class="sort-button" data-sort="user">User</button></th><th>Nodes</th><th><button class="sort-button active descending" data-sort="period_total">Selected period</button></th><th>Share</th><th><button class="sort-button" data-sort="total">Lifetime</button></th><th>Online</th><th>Online on</th><th>Activity</th><th><button class="sort-button" data-sort="last_seen">Last seen</button></th></tr></thead><tbody id="users"><tr><td colspan="9" class="empty">Loading user traffic...</td></tr></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th><button class="sort-button" data-sort="user">User</button></th><th>Nodes</th><th>Protocols</th><th><button class="sort-button active descending" data-sort="period_total">Selected period</button></th><th>Share</th><th><button class="sort-button" data-sort="total">Lifetime</button></th><th>Online</th><th>Online on</th><th>Activity</th><th><button class="sort-button" data-sort="last_seen">Last seen</button></th></tr></thead><tbody id="users"><tr><td colspan="10" class="empty">Loading user traffic...</td></tr></tbody></table></div>
     </section>
 
     <footer class="footer">Auto-refresh <span id="refresh-interval">15s</span> <span class="footer-separator">/</span> read-only collector</footer>

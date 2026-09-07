@@ -26,8 +26,12 @@ from sqlalchemy import delete
 from db import init_db, session_scope
 from httpserver import app
 from models import Health, PollRun, Previous, Sample, Total
-from poller import accumulate, parse_online, parse_stats
+from poller import accumulate
+from protocols import PROTOCOLS
 from queries import node_analytics, node_history, node_user_rows, traffic_history, user_analytics, user_rows
+
+parse_stats = PROTOCOLS["xray"]["parse_stats"]
+parse_online = PROTOCOLS["xray"]["parse_online"]
 
 
 class StatsTest(unittest.TestCase):
@@ -50,42 +54,53 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(parse_online({"users": ["alice", "user>>>bob"]}), {"alice", "bob"})
 
     def test_missing_user_is_marked_inactive(self):
-        accumulate("node-a", {
+        accumulate("node-a", "xray", {
             "alice": {"uplink": 10, "downlink": 20},
             "bob": {"uplink": 10, "downlink": 20},
         }, {"alice", "bob"})
-        accumulate("node-a", {
+        accumulate("node-a", "xray", {
             "alice": {"uplink": 20, "downlink": 40},
             "bob": {"uplink": 20, "downlink": 40},
         }, {"alice", "bob"})
-        accumulate("node-a", {
+        accumulate("node-a", "xray", {
             "alice": {"uplink": 30, "downlink": 60},
         }, {"alice"})
 
         with session_scope() as session:
-            bob = session.get(Total, ("node-a", "bob"))
-            previous = session.get(Previous, ("node-a", "bob"))
+            bob = session.get(Total, ("node-a", "xray", "bob"))
+            previous = session.get(Previous, ("node-a", "xray", "bob"))
             self.assertFalse(bob.active)
             self.assertFalse(bob.online)
             self.assertFalse(previous.was_active)
 
+    def test_two_protocols_on_the_same_node_track_independently(self):
+        accumulate("node-a", "xray", {"alice": {"uplink": 10, "downlink": 20}}, {"alice"})
+        accumulate("node-a", "hysteria", {"alice": {"uplink": 1, "downlink": 2}}, {"alice"})
+        accumulate("node-a", "xray", {"alice": {"uplink": 30, "downlink": 60}}, {"alice"})
+
+        with session_scope() as session:
+            xray_total = session.get(Total, ("node-a", "xray", "alice"))
+            hysteria_total = session.get(Total, ("node-a", "hysteria", "alice"))
+        self.assertEqual(xray_total.uplink, 20)
+        self.assertEqual(hysteria_total.uplink, 0)  # only one poll so far, no delta yet
+
     def test_online_requires_node_health_and_raw_online_signal(self):
         now = int(time.time())
         with session_scope() as session:
-            session.add(Health(node="node-a", ok=True, latency_ms=1, error="", ts=now))
+            session.add(Health(node="node-a", protocol="xray", ok=True, latency_ms=1, error="", ts=now))
             session.add(Total(
-                node="node-a", user_name="alice", uplink=10, downlink=20,
+                node="node-a", protocol="xray", user_name="alice", uplink=10, downlink=20,
                 online=False, active=True, active_since=now - 5,
                 active_bytes=30, last_seen=now,
             ))
         self.assertFalse(node_user_rows("node-a")[0]["online"])
 
         with session_scope() as session:
-            session.get(Total, ("node-a", "alice")).online = True
+            session.get(Total, ("node-a", "xray", "alice")).online = True
         self.assertTrue(node_user_rows("node-a")[0]["online"])
 
         with session_scope() as session:
-            session.get(Health, "node-a").ok = False
+            session.get(Health, ("node-a", "xray")).ok = False
         row = node_user_rows("node-a")[0]
         self.assertFalse(row["available"])
         self.assertFalse(row["online"])
@@ -93,8 +108,8 @@ class StatsTest(unittest.TestCase):
     def test_node_history_limits_grouped_poll_intervals(self):
         with session_scope() as session:
             for timestamp in (100, 200, 300):
-                session.add(Sample(node="node-a", user_name="alice", ts=timestamp, uplink=1, downlink=2))
-                session.add(Sample(node="node-a", user_name="bob", ts=timestamp, uplink=3, downlink=4))
+                session.add(Sample(node="node-a", protocol="xray", user_name="alice", ts=timestamp, uplink=1, downlink=2))
+                session.add(Sample(node="node-a", protocol="xray", user_name="bob", ts=timestamp, uplink=3, downlink=4))
 
         history = node_history("node-a", limit=2)
         self.assertEqual([item["ts"] for item in history], [200, 300])
@@ -109,9 +124,9 @@ class StatsTest(unittest.TestCase):
 
     def test_period_traffic_is_aggregated_per_user(self):
         with session_scope() as session:
-            session.add(Total(node="node-a", user_name="alice", uplink=100, downlink=200))
-            session.add(Sample(node="node-a", user_name="alice", ts=150, uplink=4, downlink=6))
-            session.add(Sample(node="node-a", user_name="alice", ts=50, uplink=40, downlink=60))
+            session.add(Total(node="node-a", protocol="xray", user_name="alice", uplink=100, downlink=200))
+            session.add(Sample(node="node-a", protocol="xray", user_name="alice", ts=150, uplink=4, downlink=6))
+            session.add(Sample(node="node-a", protocol="xray", user_name="alice", ts=50, uplink=40, downlink=60))
         with patch("queries.time.time", return_value=200):
             row = user_rows(period_seconds=100)[0]
         self.assertEqual(row["period_uplink"], 4)
@@ -120,8 +135,8 @@ class StatsTest(unittest.TestCase):
 
     def test_traffic_history_distinguishes_idle_and_missing_buckets(self):
         with session_scope() as session:
-            session.add(Sample(node="node-a", user_name="alice", ts=125, uplink=4, downlink=6))
-            session.add(PollRun(node="node-a", ok=True, latency_ms=1, error="", ts=125))
+            session.add(Sample(node="node-a", protocol="xray", user_name="alice", ts=125, uplink=4, downlink=6))
+            session.add(PollRun(node="node-a", protocol="xray", ok=True, latency_ms=1, error="", ts=125))
         with patch("queries.time.time", return_value=180):
             series = traffic_history(seconds=120, bucket=60)["series"]
         self.assertIsNone(series[0]["total"])
@@ -131,10 +146,10 @@ class StatsTest(unittest.TestCase):
 
     def test_node_and_user_analytics(self):
         with session_scope() as session:
-            session.add(Total(node="node-a", user_name="alice", uplink=4, downlink=6))
-            session.add(Sample(node="node-a", user_name="alice", ts=125, uplink=4, downlink=6))
-            session.add(PollRun(node="node-a", ok=True, latency_ms=20, error="", ts=125))
-            session.add(PollRun(node="node-a", ok=False, latency_ms=40, error="timeout", ts=150))
+            session.add(Total(node="node-a", protocol="xray", user_name="alice", uplink=4, downlink=6))
+            session.add(Sample(node="node-a", protocol="xray", user_name="alice", ts=125, uplink=4, downlink=6))
+            session.add(PollRun(node="node-a", protocol="xray", ok=True, latency_ms=20, error="", ts=125))
+            session.add(PollRun(node="node-a", protocol="xray", ok=False, latency_ms=40, error="timeout", ts=150))
         with patch("queries.time.time", return_value=180):
             node = node_analytics("node-a", seconds=120, bucket=60)
             user = user_analytics("alice", seconds=120, bucket=60)

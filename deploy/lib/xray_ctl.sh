@@ -44,6 +44,48 @@ xray_check_bbr() {
     [ "$current" = "bbr" ] || warn "$host: BBR could not be enabled (kernel may not support it)"
 }
 
+# Hysteria2 runs over QUIC/UDP, which needs a much bigger UDP socket buffer
+# than the Linux default (~208KB) to avoid packet loss under real throughput -
+# see https://v2.hysteria.network/docs/advanced/Performance/ (official
+# recommendation: 16MB). Only called for nodes with "hysteria" in their
+# protocols. A Docker container's network namespace snapshots net.core.*
+# at creation time, so an already-running hysteria container won't see a
+# freshly-raised host limit until its namespace is recreated - hence the
+# force-recreate below, but ONLY if hysteria/config.yaml already exists AS A
+# FILE (i.e. this node has run with hysteria enabled before). This check
+# runs in the host-prep phase, before deploy_nodes.sh uploads that file - on
+# a node enabling hysteria for the very first time, recreating here would
+# make Docker Compose auto-create the missing bind-mount source as an empty
+# DIRECTORY, permanently blocking every later attempt to write the real file
+# there. Skipping the recreate on first-enable is correct anyway: the normal
+# apply flow right after this will create that container fresh (since the
+# rendered files changed), already picking up the raised sysctl.
+xray_check_udp_buffers() {
+    local host="$1" deploy_dir="$2" current
+    current=$(ssh_run "$host" "sysctl -n net.core.rmem_max 2>/dev/null")
+    [ "${current:-0}" -ge 16777216 ] 2>/dev/null && return 0
+
+    ssh_run "$host" "
+        sudo mkdir -p /etc/sysctl.d
+        sudo sysctl -w net.core.rmem_max=16777216 > /dev/null
+        sudo sysctl -w net.core.wmem_max=16777216 > /dev/null
+        grep -qxF 'net.core.rmem_max=16777216' /etc/sysctl.d/99-hysteria-udp.conf 2>/dev/null \
+            || echo 'net.core.rmem_max=16777216' | sudo tee -a /etc/sysctl.d/99-hysteria-udp.conf > /dev/null
+        grep -qxF 'net.core.wmem_max=16777216' /etc/sysctl.d/99-hysteria-udp.conf 2>/dev/null \
+            || echo 'net.core.wmem_max=16777216' | sudo tee -a /etc/sysctl.d/99-hysteria-udp.conf > /dev/null
+    " >/dev/null 2>&1
+
+    current=$(ssh_run "$host" "sysctl -n net.core.rmem_max 2>/dev/null")
+    if [ "${current:-0}" -ge 16777216 ] 2>/dev/null; then
+        if ssh_run "$host" "test -f ${deploy_dir}/hysteria/config.yaml" >/dev/null 2>&1; then
+            ssh_run "$host" "cd ${deploy_dir} && docker compose --profile hysteria up -d --force-recreate hysteria" >/dev/null 2>&1 \
+                || warn "$host: raised UDP buffers but failed to recreate the hysteria container - restart it manually so it picks up the new limit"
+        fi
+    else
+        warn "$host: could not raise net.core.rmem_max/wmem_max for Hysteria2 UDP throughput"
+    fi
+}
+
 xray_container_running() { mesh_container_running "$1" "$2"; }
 
 # A valid deployment requires every service in the compose stack, not only

@@ -30,6 +30,19 @@ h2 { font-size: 16px; letter-spacing: -.02em; }
 .range-control { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .range-control select { padding: 7px 9px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 3px; font: inherit; }
 .muted, .metric-note, .footer, .empty { color: var(--muted); }
+.protocol-badge { display: inline-block; border: 1px solid var(--line); border-radius: 3px; padding: 2px 7px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.protocol-badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.node-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; padding: 16px 18px; }
+.node-card { padding: 14px 16px; background: linear-gradient(145deg, var(--panel-raised), var(--panel)); border: 1px solid var(--line); border-radius: 5px; }
+.node-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.node-card-head .user-link { font-size: 14px; font-weight: 600; }
+.node-card-protocols { display: flex; flex-direction: column; gap: 6px; }
+.node-card-protocol { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; background: #ffffff05; border: 1px solid #ffffff0d; border-radius: 4px; font-size: 11px; }
+.node-card-protocol-meta { display: flex; align-items: center; gap: 9px; color: var(--muted); }
+.node-card-protocol-error { margin: -2px 0 4px; padding: 0 9px; color: var(--red); font-size: 10px; }
+.node-card-foot { display: flex; justify-content: space-between; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+.protocol-status-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.protocol-status-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 3px; font-size: 10px; }
 .status-pill { border: 1px solid currentColor; border-radius: 3px; padding: 5px 8px; font-size: 10px; letter-spacing: .08em; }
 .status-pill.ok { color: var(--green); background: #55d68b12; }
 .status-pill.pending { color: var(--amber); background: #f2b76212; }

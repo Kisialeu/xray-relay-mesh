@@ -71,9 +71,9 @@ Main sections:
 - `resolvers`: HAProxy DNS resolver settings
 - `subs`: subscription domain, Caddy host, deployment dir, SSH settings, and secrets
 - `xray.reality`: shared Reality keys and SNI for all nodes
-- `xray.users`: subscription users, UUIDs, and optional per-user hidden nodes - also the Hysteria2 identity/password for that same user when Hysteria2 is enabled
-- `hysteria`: global Hysteria2 toggle/settings (`enabled`, `acme_email`, `masquerade_url`, `up_mbps`/`down_mbps`) - see below
-- `nodes`: mesh members with stable `id`, `name`, `host`, `direct_port`, SSH settings, optional `is_relay_entry`, and optional `tls_domain` (required per node when `hysteria.enabled` is `true`)
+- `xray.users`: subscription users, UUIDs, and optional per-user hidden nodes - also the Hysteria2 identity/password for that same user on any node that opts in to Hysteria2
+- `hysteria`: shared Hysteria2 settings (`acme_email`, `masquerade_url`, `up_mbps`/`down_mbps`) for whichever nodes opt in - see below
+- `nodes`: mesh members with stable `id`, `name`, `host`, `direct_port`, SSH settings, optional `is_relay_entry`, optional `protocols` (defaults to `["xray"]`; add `"hysteria"` to also run Hysteria2 on that node), and `tls_domain` (required on any node whose `protocols` includes `"hysteria"`)
 
 Important invariants enforced by the tooling:
 
@@ -95,14 +95,14 @@ If `xray.reality.private_key` and `xray.reality.public_key` are empty, `deploy/d
 
 ## Hysteria2 (optional)
 
-Hysteria2 ([apernet/hysteria](https://github.com/apernet/hysteria)) is a separate UDP/QUIC server, not an Xray protocol - `deploy/deploy_nodes.sh` runs it as its own container next to `xray`/`warp`/`adguard-home`, gated by a Docker Compose profile so `docker-compose.xray.yml` stays identical on every node whether it's on or not.
+Hysteria2 ([apernet/hysteria](https://github.com/apernet/hysteria)) is a separate UDP/QUIC server, not an Xray protocol - `deploy/deploy_nodes.sh` runs it as its own container next to `xray`/`warp`/`adguard-home`, gated by a Docker Compose profile so `docker-compose.xray.yml` stays identical on every node whether it's on or not. It's opt-in **per node**, not a mesh-wide switch - every node always runs Xray (the relay mesh backbone), and only nodes that ask for it also run Hysteria2.
 
-To enable it:
+To enable it on a node:
 
-1. Set `hysteria.enabled: true` and `hysteria.acme_email` in `inventory.json`.
-2. For every node, point a real DNS A/AAAA record at that node's `host`/IP and set that name as the node's `tls_domain`. This is required because Hysteria2 uses a real ACME (Let's Encrypt) certificate for TLS, and public CAs cannot issue a certificate for a bare IP address - unlike Reality, which borrows a foreign site's handshake and needs no domain of its own.
-3. Deploy as usual (`./mesh.sh deploy-node <node>` / `deploy-nodes`) - each node opens port 80 for the ACME HTTP-01 challenge/renewal in addition to its existing `direct_port`, now also bound on UDP for Hysteria2 (same port number, independent from the existing TCP VLESS listener).
-4. Regenerate subscriptions - each user gets an additional `hysteria2://` link per node they can see, using the same UUID as their VLESS credential.
+1. Set `hysteria.acme_email` in `inventory.json` (shared across every node that opts in - only needs setting once).
+2. On that node, point a real DNS A/AAAA record at its `host`/IP, set that name as the node's `tls_domain`, and add `"hysteria"` to the node's `protocols` array (e.g. `"protocols": ["xray", "hysteria"]`). The domain is required because Hysteria2 uses a real ACME (Let's Encrypt) certificate for TLS, and public CAs cannot issue a certificate for a bare IP address - unlike Reality, which borrows a foreign site's handshake and needs no domain of its own.
+3. Deploy that node as usual (`./mesh.sh deploy-node <node>` / `deploy-nodes`) - it opens port 80 for the ACME HTTP-01 challenge/renewal in addition to its existing `direct_port`, now also bound on UDP for Hysteria2 (same port number, independent from the existing TCP VLESS listener). Other nodes are unaffected.
+4. Regenerate subscriptions - each user gets an additional `hysteria2://` link for that node, using the same UUID as their VLESS credential.
 
 Notes:
 
