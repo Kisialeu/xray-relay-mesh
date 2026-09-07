@@ -62,6 +62,7 @@ Then edit `inventory.json` and replace the example values.
 - `zone_domain`: Route53 hosted zone, for example `example.com`
 - `caddy_host`: server that runs Caddy and serves subscription files
 - `caddy_deploy_dir`: remote deployment directory for Caddy
+- `content_deploy_dir`: optional separate remote root for managed subscription content; defaults to `<caddy_deploy_dir>-content`
 - `ssh_user`: SSH user for the Caddy host
 - `ssh_key`: SSH private key path for the Caddy host
 - `sub_secret`: secret used to build private subscription URLs
@@ -77,7 +78,7 @@ Then edit `inventory.json` and replace the example values.
 - `short_id`: Reality short ID
 - `sni`: Reality server name
 
-If `private_key` and `public_key` are left empty, `./mesh.sh deploy-nodes` can generate them automatically and save them back into `inventory.json`.
+Both keys must exist before deployment. Deployment validates them but never generates or changes them.
 
 `xray.dns`
 
@@ -145,12 +146,11 @@ openssl rand -hex 20
 
 Use different values for each secret.
 
-### Reality keys
+### Reality and Hysteria secrets
 
-Two options:
-
-1. Leave them empty and let `./mesh.sh deploy-nodes` generate them.
-2. Set them manually if you already have a known Reality keypair.
+Provision the Reality keypair before deployment. If Hysteria is enabled, set
+the same `hysteria_stats_secret` value on every Hysteria-enabled node. The
+framework never generates, rotates, or normalizes inventory secrets.
 
 ## Minimal checklist
 
@@ -174,9 +174,8 @@ Before first deploy, make sure you changed:
 Or scripted:
 
 ```bash
-./mesh.sh deploy-nodes
-./mesh.sh deploy-relay-all
-./mesh.sh deploy-caddy
-./mesh.sh subs-generate
-./mesh.sh subs-sync
+./mesh.sh deploy xray
+./mesh.sh deploy relay
+./mesh.sh deploy caddy
+./mesh.sh deploy subscriptions
 ```

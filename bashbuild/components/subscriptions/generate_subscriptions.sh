@@ -18,12 +18,7 @@
 #
 # Usage: relay-mesh/subs/generate_subscriptions.sh [inventory.json]
 #
-# subs.domain/subs.sub_secret come from inventory.json. Export SUB_SECRET
-# yourself to override the inventory value (e.g. after rotating it) without
-# editing the file.
-#
 # Optional env:
-#   SUB_SECRET   - overrides inventory.json's subs.sub_secret
 #   SUB_DIR      - local output dir (default: ./subscriptions)
 #   LINK_FP      - uTLS fingerprint in links (default: firefox)
 
@@ -60,7 +55,7 @@ inv_validate "$INVENTORY" || exit 1
 SUB_DOMAIN="$(inv_subs_domain "$INVENTORY")"
 [ -n "$SUB_DOMAIN" ] || { error "subs.domain not set in $INVENTORY"; exit 1; }
 
-: "${SUB_SECRET:=$(inv_subs_secret "$INVENTORY")}"
+SUB_SECRET=$(inv_subs_secret "$INVENTORY")
 [ -n "$SUB_SECRET" ] || { error "subs.sub_secret not set in $INVENTORY (or export SUB_SECRET)"; exit 1; }
 
 info "Building links from $INVENTORY..."

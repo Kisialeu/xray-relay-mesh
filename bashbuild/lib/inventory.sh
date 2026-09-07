@@ -55,6 +55,10 @@ inv_validate() {
         ((.subs.caddy_deploy_dir // "/opt/caddy-subs") |
             test("^/opt/[A-Za-z0-9._/-]+$") and
             (contains("..") | not) and
+            (contains("//") | not)) and
+        ((.subs.content_deploy_dir // ((.subs.caddy_deploy_dir // "/opt/caddy-subs") + "-content")) |
+            test("^/opt/[A-Za-z0-9._/-]+$") and
+            (contains("..") | not) and
             (contains("//") | not))
     ' "$file" >/dev/null 2>&1 || {
         error "inventory contains invalid environment, node identity, port, SSH value, or deploy path"
@@ -403,6 +407,9 @@ inv_subs_domain()          { jq -r '.subs.domain // ""' "$1"; }
 inv_subs_zone_domain()     { jq -r '.subs.zone_domain // ""' "$1"; }
 inv_subs_caddy_host()      { jq -r '.subs.caddy_host // ""' "$1"; }
 inv_subs_caddy_deploy_dir(){ jq -r '.subs.caddy_deploy_dir // "/opt/caddy-subs"' "$1"; }
+inv_subs_content_deploy_dir() {
+    jq -r '.subs.content_deploy_dir // ((.subs.caddy_deploy_dir // "/opt/caddy-subs") + "-content")' "$1"
+}
 inv_subs_ssh_user()        { jq -r '.subs.ssh_user // ""' "$1"; }
 inv_subs_ssh_key()         { jq -r '.subs.ssh_key // ""' "$1"; }
 inv_subs_secret()          { jq -r '.subs.sub_secret // ""' "$1"; }

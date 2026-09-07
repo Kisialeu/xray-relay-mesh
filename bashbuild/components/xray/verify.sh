@@ -32,12 +32,18 @@ xray_validate_stage() {
     remote_validate_stage "$host" "$deploy_dir" "$run_id" || return 1
     remote_bash "$host" "$deploy_dir/.staging/$run_id" "$hysteria_enabled" <<'REMOTE'
 set -euo pipefail
-cd "$1"
-docker compose -f docker-compose.yml run --rm --no-deps --entrypoint xray xray \
-    run -test -config /etc/xray/config.json
+stage=$1
+xray_image=$(awk -F= '$1 == "XRAY_IMAGE" { print substr($0, index($0, "=") + 1) }' "$stage/.env")
+[ -n "$xray_image" ]
+sudo docker run --rm --network none \
+    -v "$stage/config/config.json:/etc/xray/config.json:ro" \
+    "$xray_image" run -test -config /etc/xray/config.json
 if [ "$2" = true ]; then
-    docker compose -f docker-compose.yml --profile hysteria run --rm --no-deps hysteria \
-        server -c /etc/hysteria/config.yaml --check
+    hysteria_image=$(awk -F= '$1 == "HYSTERIA_IMAGE" { print substr($0, index($0, "=") + 1) }' "$stage/.env")
+    [ -n "$hysteria_image" ]
+    sudo docker run --rm --network none \
+        -v "$stage/hysteria/config.yaml:/etc/hysteria/config.yaml:ro" \
+        "$hysteria_image" server -c /etc/hysteria/config.yaml --check
 fi
 REMOTE
 }
@@ -67,7 +73,7 @@ xray_remove_disabled_hysteria() {
     remote_bash "$host" "$deploy_dir" <<'REMOTE'
 set -euo pipefail
 cd "$1"
-docker compose --profile hysteria rm -sf hysteria
+sudo docker compose --profile hysteria rm -sf hysteria
 REMOTE
 }
 
@@ -88,6 +94,6 @@ xray_verify() {
     [ "$hysteria_enabled" != true ] || containers+=(hysteria)
     compose_wait_healthy "$host" "${MESH_TIMEOUT:-120}" "${containers[@]}" || return 1
     remote_bash "$host" <<'REMOTE'
-docker exec xray python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:9091/health", timeout=4).read()' >/dev/null
+sudo docker exec xray python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:9091/health", timeout=4).read()' >/dev/null
 REMOTE
 }

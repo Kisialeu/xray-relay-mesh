@@ -13,6 +13,10 @@ source "$ROOT_DIR/bashbuild/lib/common.sh"
 source "$ROOT_DIR/bashbuild/lib/inventory.sh"
 # shellcheck source=../lib/stage.sh
 source "$ROOT_DIR/bashbuild/lib/stage.sh"
+# shellcheck source=../bashbuild/components/caddy/stage.sh
+source "$ROOT_DIR/bashbuild/components/caddy/stage.sh"
+# shellcheck source=../bashbuild/components/subscriptions/sync.sh
+source "$ROOT_DIR/bashbuild/components/subscriptions/sync.sh"
 
 pass_count=0
 
@@ -62,7 +66,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..24\n'
+printf '1..28\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -177,3 +181,40 @@ assert_failure "Xray deploy validation requires pre-existing Hysteria secret" \
 printf 'q\n' | INVENTORY="$ROOT_DIR/configs/examples/inventory.2node.json" "$ROOT_DIR/mesh.sh" \
     | grep -F 'Xray Relay Mesh' >/dev/null || fail "no-argument CLI opens interactive UI"
 pass "no-argument CLI opens interactive UI"
+
+[ "$(inv_subs_content_deploy_dir "$ROOT_DIR/configs/examples/inventory.2node.json")" = "/opt/caddy-subs-content" ] \
+    || fail "subscription content has a separate deployment root"
+pass "subscription content has a separate deployment root"
+
+jq '.subs.origin_verify_secret = "fixture-origin-secret"' \
+    "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/caddy-inventory.json"
+caddy_stage=""
+stage_create caddy_stage caddy
+caddy_render_stage "$TEST_TMP/caddy-inventory.json" "$caddy_stage"
+[ "$(mesh_file_mode "$caddy_stage/.env")" = 600 ] \
+    || fail "Caddy secret environment uses mode 0600"
+pass "Caddy secret environment uses mode 0600"
+stage_cleanup
+
+generated_dir="$TEST_TMP/generated"
+token=0123456789abcdef0123456789abcdef01234567
+mkdir -p "$generated_dir/user"
+printf '%s\n' "$token" > "$generated_dir/user/sub.token"
+printf 'encoded\n' > "$generated_dir/user/sub.b64"
+printf 'https://sub.example.test/%s\n' "$token" > "$generated_dir/user/sub.url"
+printf 'private-link\n' > "$generated_dir/user/sub.links"
+subscriptions_stage=""
+stage_create subscriptions_stage subscriptions
+subscriptions_render_stage "$generated_dir" "$subscriptions_stage"
+stage_manifest_validate "$subscriptions_stage/.mesh-manifest" \
+    || fail "subscription sync stages an explicit public-file manifest"
+[ -f "$subscriptions_stage/$token/sub.b64" ] \
+    && [ ! -e "$subscriptions_stage/$token/sub.links" ] \
+    && [ ! -e "$subscriptions_stage/$token/sub.token" ] \
+    || fail "subscription sync stages an explicit public-file manifest"
+pass "subscription sync stages an explicit public-file manifest"
+stage_cleanup
+
+grep -F 'docker run --rm --network none' "$ROOT_DIR/bashbuild/components/xray/verify.sh" >/dev/null \
+    || fail "Xray staged validation does not create a Docker network"
+pass "Xray staged validation does not create a Docker network"

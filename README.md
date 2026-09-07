@@ -41,7 +41,6 @@ Local tools used by the scripts:
 - `jq`
 - `ssh`
 - `scp`
-- `rsync` for subscription sync
 - `curl`
 - `sha256sum`
 - `base64`
@@ -107,6 +106,7 @@ Notes:
 - Hysteria2 is direct-connect only: it does not go through the HAProxy relay mesh (`relay/`), which is TCP passthrough only by design. There's no "via entry node" Hysteria2 link.
 - `masquerade_url` (what a non-authenticated/probing connection is proxied to) defaults to `https://<xray.reality.sni>` if left empty.
 - The ACME cert cache lives under each node's `hysteria/acme/` on the remote host and is never touched by redeploys (same treatment as `adguard/work`), so re-deploying doesn't re-issue certificates.
+- Caddy configuration is managed under `subs.caddy_deploy_dir`. Generated subscription content is managed separately under `subs.content_deploy_dir`, which defaults to `<caddy_deploy_dir>-content`.
 
 ## Using `mesh.sh`
 

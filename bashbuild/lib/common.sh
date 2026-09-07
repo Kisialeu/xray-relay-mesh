@@ -94,13 +94,13 @@ mesh_resolve_subs_ssh() {
 # belongs to the explicit bootstrap command.
 mesh_check_docker() {
     local host="$1"
-    ssh_run "$host" "docker info >/dev/null 2>&1" \
+    ssh_run "$host" "sudo docker info >/dev/null 2>&1" \
         || { error "$host: Docker is unavailable; run './mesh.sh bootstrap --node <name>'"; return 1; }
 }
 
 mesh_check_docker_compose() {
     local host="$1"
-    ssh_run "$host" "docker compose version >/dev/null 2>&1" \
+    ssh_run "$host" "sudo docker compose version >/dev/null 2>&1" \
         || { error "$host: Docker Compose is unavailable; run './mesh.sh bootstrap --node <name>'"; return 1; }
 }
 
@@ -109,8 +109,8 @@ mesh_container_running() {
     local status
     [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
         || { error "invalid container name: $name"; return 1; }
-    status=$(remote_bash "$host" "$name" <<'REMOTE' || true
-docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null
+status=$(remote_bash "$host" "$name" <<'REMOTE' || true
+sudo docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null
 REMOTE
     )
     [ "$status" = "running" ]

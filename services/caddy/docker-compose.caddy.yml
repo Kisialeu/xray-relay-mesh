@@ -10,7 +10,7 @@ services:
       - "0.0.0.0:8080:8080"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./subs:/srv/subs:ro
+      - ${SUBS_CONTENT_DIR:-/opt/caddy-subs-content}:/srv/subs:ro
       - caddy_data:/data
       - caddy_logs:/var/log/caddy
     env_file:

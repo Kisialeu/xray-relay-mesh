@@ -12,8 +12,9 @@ remote_preflight() {
     remote_bash "$host" "$deploy_dir" <<'REMOTE'
 set -euo pipefail
 command -v docker >/dev/null
-docker info >/dev/null
-docker compose version >/dev/null
+sudo -n true
+sudo docker info >/dev/null
+sudo docker compose version >/dev/null
 sudo install -d -m 0755 "$1" "$1/.staging" "$1/.backups"
 test -w /tmp
 REMOTE
@@ -82,7 +83,7 @@ else
     printf 'no Compose file in stage\n' >&2
     exit 1
 fi
-docker compose -f "$compose_file" config -q
+sudo docker compose -f "$compose_file" config -q
 REMOTE
 }
 
