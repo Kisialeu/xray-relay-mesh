@@ -1,10 +1,11 @@
 {
    "_comment": "Relay port for reaching a node is always relay_port_base + node.id, the SAME on every other node - deterministic and collision-free as nodes are added. id is permanent once assigned; never reuse an id after removing a node.",
    "images": {
-      "_comment": "Container image refs for the xray stack (xray/warp/adguard). :latest by default; pin to a version tag or digest (e.g. \"teddysun/xray@sha256:<digest>\") for reproducible deploys. Rendered into each node's .env.",
+      "_comment": "Container image refs for the xray stack (xray/warp/adguard/hysteria). :latest by default; pin to a version tag or digest (e.g. \"teddysun/xray@sha256:<digest>\") for reproducible deploys. Rendered into each node's .env.",
       "xray": "teddysun/xray:latest",
       "warp": "caomingjun/warp:latest",
-      "adguard": "adguard/adguardhome:latest"
+      "adguard": "adguard/adguardhome:latest",
+      "hysteria": "tobyxdd/hysteria:latest"
    },
    "relay_port_base": 8442,
    "resolvers": {
@@ -38,6 +39,14 @@
       "sub_secret": "",
       "origin_verify_secret": ""
    },
+   "hysteria": {
+      "_comment": "Hysteria2 (apernet/hysteria) is a separate UDP/QUIC server next to xray, not an Xray protocol - direct-connect only, no HAProxy relay. enabled:true requires every node below to set 'tls_domain' (a real DNS name pointed at that node's host/IP - Let's Encrypt cannot issue a cert for a bare IP) and requires acme_email. masquerade_url defaults to https://<xray.reality.sni> if left empty.",
+      "enabled": false,
+      "acme_email": "admin@example.com",
+      "masquerade_url": "",
+      "up_mbps": 200,
+      "down_mbps": 200
+   },
    "xray": {
       "reality": {
          "private_key": "",
@@ -69,6 +78,7 @@
          "name": "suomi",
          "friendly_name": "Helsinki",
          "host": "suomi.example.com",
+         "tls_domain": "suomi.hysteria.example.com",
          "direct_port": 443,
          "ssh_user": "root",
          "ssh_key": "~/.ssh/my_custom_key",
@@ -79,6 +89,7 @@
          "name": "frankfurt",
          "friendly_name": "Germany",
          "host": "frankfurt.example.com",
+         "tls_domain": "frankfurt.hysteria.example.com",
          "direct_port": 443,
          "ssh_user": "root",
          "ssh_key": "~/.ssh/my_custom_key",

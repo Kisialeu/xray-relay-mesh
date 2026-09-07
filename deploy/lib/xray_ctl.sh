@@ -48,26 +48,31 @@ xray_container_running() { mesh_container_running "$1" "$2"; }
 
 # A valid deployment requires every service in the compose stack, not only
 # the xray container. This makes an unchanged deploy self-healing after a
-# host reboot or a manually stopped dependency.
+# host reboot or a manually stopped dependency. hysteria_enabled is only
+# checked when "true" - its container doesn't exist at all otherwise (gated
+# by the "hysteria" compose profile), so checking it unconditionally would
+# make xray_stack_running never succeed on nodes without Hysteria2.
 xray_stack_running() {
-    local host="$1" service
-    for service in adguard-home warp xray; do
+    local host="$1" hysteria_enabled="${2:-false}" service
+    local services=(adguard-home warp xray)
+    [ "$hysteria_enabled" = "true" ] && services+=(hysteria)
+    for service in "${services[@]}"; do
         xray_container_running "$host" "$service" || return 1
     done
 }
 
 xray_start() {
-    local host="$1" deploy_dir="$2"
+    local host="$1" deploy_dir="$2" hysteria_enabled="${3:-false}"
     ssh_run "$host" "cd ${deploy_dir} && docker compose pull && docker compose down --remove-orphans && docker compose up -d" || return 1
     sleep 3
-    xray_stack_running "$host"
+    xray_stack_running "$host" "$hysteria_enabled"
 }
 
 # Starts only the stopped or absent services. Unlike xray_start(), this keeps
 # already-running containers intact when the rendered deployment is unchanged.
 xray_ensure_running() {
-    local host="$1" deploy_dir="$2"
-    if xray_stack_running "$host"; then
+    local host="$1" deploy_dir="$2" hysteria_enabled="${3:-false}"
+    if xray_stack_running "$host" "$hysteria_enabled"; then
         info "$host: xray stack unchanged and running - no-op"
         return 0
     fi
@@ -75,7 +80,7 @@ xray_ensure_running() {
     info "$host: xray stack unchanged but a service is not running - starting it"
     ssh_run "$host" "cd ${deploy_dir} && docker compose up -d --remove-orphans" || return 1
     sleep 3
-    xray_stack_running "$host"
+    xray_stack_running "$host" "$hysteria_enabled"
 }
 
 xray_restore_backup() {
@@ -104,15 +109,23 @@ xray_restore_backup() {
 #   - on any failure: restores the snapshot, restarts from it (fail-safe, not
 #     fail-open)
 xray_apply() {
-    local host="$1" deploy_dir="$2" stage_dir="$3"
+    local host="$1" deploy_dir="$2" stage_dir="$3" hysteria_enabled="${4:-false}"
     local marker="${deploy_dir}/.deployed.sha256"
     local backup="${deploy_dir}.backup.tgz"
     local sig remote_sig
 
+    # If Hysteria2 was previously enabled and is now off, the compose file
+    # still defines the "hysteria" service (gated by profile) but .env no
+    # longer activates it - stop any leftover container so it doesn't run on
+    # a stale config/cert after the profile is dropped.
+    if [ "$hysteria_enabled" != "true" ]; then
+        ssh_run "$host" "cd ${deploy_dir} 2>/dev/null && docker compose --profile hysteria rm -sf hysteria" >/dev/null 2>&1 || true
+    fi
+
     sig=$(find "$stage_dir" -type f -exec sha256sum {} + | awk '{print $1}' | sort | sha256sum | awk '{print $1}')
     remote_sig=$(ssh_run "$host" "cat ${marker} 2>/dev/null" || true)
     if [ "$remote_sig" = "$sig" ]; then
-        xray_ensure_running "$host" "$deploy_dir" \
+        xray_ensure_running "$host" "$deploy_dir" "$hysteria_enabled" \
             || { error "$host: xray stack did not become fully running"; return 1; }
         return 0
     fi
@@ -126,14 +139,20 @@ xray_apply() {
 
     info "$host: uploading rendered xray stack"
     mesh_upload_dir_merge "$host" "$stage_dir" "$deploy_dir" || return 1
+
+    local hysteria_mkdir="" hysteria_chmod=""
+    if [ "$hysteria_enabled" = "true" ]; then
+        hysteria_mkdir="${deploy_dir}/hysteria/acme"
+        hysteria_chmod="${deploy_dir}/hysteria/config.yaml"
+    fi
     ssh_run "$host" "
-        sudo mkdir -p ${deploy_dir}/logs ${deploy_dir}/adguard/work ${deploy_dir}/adguard/conf &&
+        sudo mkdir -p ${deploy_dir}/logs ${deploy_dir}/adguard/work ${deploy_dir}/adguard/conf ${hysteria_mkdir} &&
         sudo chmod 644 ${deploy_dir}/logs &&
         sudo chmod +x ${deploy_dir}/entrypoint.sh &&
-        sudo chmod 644 ${deploy_dir}/.env ${deploy_dir}/config/config.json ${deploy_dir}/adguard/conf/AdGuardHome.yaml ${deploy_dir}/docker-compose.yml ${deploy_dir}/stats.py
+        sudo chmod 644 ${deploy_dir}/.env ${deploy_dir}/config/config.json ${deploy_dir}/adguard/conf/AdGuardHome.yaml ${deploy_dir}/docker-compose.yml ${deploy_dir}/stats.py ${hysteria_chmod}
     " || { error "$host: failed to finalize permissions on $deploy_dir"; return 1; }
 
-    if ! xray_start "$host" "$deploy_dir"; then
+    if ! xray_start "$host" "$deploy_dir" "$hysteria_enabled"; then
         error "$host: xray stack failed to start - rolling back"
         xray_restore_backup "$host" "$deploy_dir" "$backup"
         return 1

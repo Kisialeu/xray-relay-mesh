@@ -139,6 +139,21 @@ inv_validate() {
         fi
     fi
 
+    if [ "$(inv_hysteria_enabled "$file")" = "true" ]; then
+        local hysteria_email missing_tls_domain
+        hysteria_email=$(inv_hysteria_acme_email "$file")
+        if [ -z "$hysteria_email" ]; then
+            error "hysteria.enabled=true requires hysteria.acme_email"
+            return 1
+        fi
+
+        missing_tls_domain=$(jq -r '.nodes[] | select((.tls_domain // "") == "") | .name' "$file")
+        if [ -n "$missing_tls_domain" ]; then
+            error "hysteria.enabled=true requires tls_domain on every node (ACME cannot issue for a bare IP), missing on: $missing_tls_domain"
+            return 1
+        fi
+    fi
+
     return 0
 }
 
@@ -260,3 +275,20 @@ inv_subs_origin_verify_secret() { jq -r '.subs.origin_verify_secret // ""' "$1";
 inv_image_xray()    { jq -r '.images.xray // "teddysun/xray:latest"' "$1"; }
 inv_image_warp()    { jq -r '.images.warp // "caomingjun/warp:latest"' "$1"; }
 inv_image_adguard() { jq -r '.images.adguard // "adguard/adguardhome:latest"' "$1"; }
+inv_image_hysteria() { jq -r '.images.hysteria // "tobyxdd/hysteria:latest"' "$1"; }
+
+# ---- hysteria2 (see inventory.json "hysteria" block; per-node "tls_domain") ----
+# Hysteria2 (github.com/apernet/hysteria, image tobyxdd/hysteria) is a
+# separate UDP/QUIC server, not an Xray protocol - it runs as its own
+# container, direct-connect only (no HAProxy relay - relay/lib/render.sh is
+# TCP passthrough only by design). It needs a real ACME cert, and Let's
+# Encrypt cannot issue one for a bare IP, so each node needs its own
+# "tls_domain" pointed at that node's host - separate from
+# "host"/direct_port, which stay the actual connect address in links.
+inv_hysteria_enabled()        { jq -r '.hysteria.enabled // false' "$1"; }
+inv_hysteria_acme_email()     { jq -r '.hysteria.acme_email // ""' "$1"; }
+inv_hysteria_masquerade_url() { jq -r '.hysteria.masquerade_url // ""' "$1"; }
+inv_hysteria_up_mbps()        { jq -r '.hysteria.up_mbps // 200' "$1"; }
+inv_hysteria_down_mbps()      { jq -r '.hysteria.down_mbps // 200' "$1"; }
+
+inv_node_tls_domain() { inv_node_field "$1" "$2" tls_domain; }

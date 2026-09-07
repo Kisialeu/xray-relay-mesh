@@ -13,10 +13,11 @@ The repo is inventory-driven. You describe nodes, users, relay ports, and subscr
 
 ## What it manages
 
-Each node can run two layers:
+Each node can run three layers:
 
 1. Xray on that node's own `direct_port`
 2. HAProxy listeners for every other node in the mesh, using deterministic relay ports derived from `relay_port_base + node.id`
+3. Optionally, Hysteria2 (a separate UDP/QUIC server, not an Xray protocol) on the same port number as `direct_port` but UDP - direct-connect only, no HAProxy relay (HAProxy here is TCP passthrough only)
 
 Separately, one Caddy host serves generated subscription files. That host can optionally sit behind CloudFront with a custom origin verification header.
 
@@ -70,8 +71,9 @@ Main sections:
 - `resolvers`: HAProxy DNS resolver settings
 - `subs`: subscription domain, Caddy host, deployment dir, SSH settings, and secrets
 - `xray.reality`: shared Reality keys and SNI for all nodes
-- `xray.users`: subscription users, UUIDs, and optional per-user hidden nodes
-- `nodes`: mesh members with stable `id`, `name`, `host`, `direct_port`, SSH settings, and optional `is_relay_entry`
+- `xray.users`: subscription users, UUIDs, and optional per-user hidden nodes - also the Hysteria2 identity/password for that same user when Hysteria2 is enabled
+- `hysteria`: global Hysteria2 toggle/settings (`enabled`, `acme_email`, `masquerade_url`, `up_mbps`/`down_mbps`) - see below
+- `nodes`: mesh members with stable `id`, `name`, `host`, `direct_port`, SSH settings, optional `is_relay_entry`, and optional `tls_domain` (required per node when `hysteria.enabled` is `true`)
 
 Important invariants enforced by the tooling:
 
@@ -90,6 +92,23 @@ Important invariants enforced by the tooling:
    - `xray.users`
 
 If `xray.reality.private_key` and `xray.reality.public_key` are empty, `deploy/deploy_nodes.sh` will generate them once locally with Docker and persist them back into `inventory.json`.
+
+## Hysteria2 (optional)
+
+Hysteria2 ([apernet/hysteria](https://github.com/apernet/hysteria)) is a separate UDP/QUIC server, not an Xray protocol - `deploy/deploy_nodes.sh` runs it as its own container next to `xray`/`warp`/`adguard-home`, gated by a Docker Compose profile so `docker-compose.xray.yml` stays identical on every node whether it's on or not.
+
+To enable it:
+
+1. Set `hysteria.enabled: true` and `hysteria.acme_email` in `inventory.json`.
+2. For every node, point a real DNS A/AAAA record at that node's `host`/IP and set that name as the node's `tls_domain`. This is required because Hysteria2 uses a real ACME (Let's Encrypt) certificate for TLS, and public CAs cannot issue a certificate for a bare IP address - unlike Reality, which borrows a foreign site's handshake and needs no domain of its own.
+3. Deploy as usual (`./mesh.sh deploy-node <node>` / `deploy-nodes`) - each node opens port 80 for the ACME HTTP-01 challenge/renewal in addition to its existing `direct_port`, now also bound on UDP for Hysteria2 (same port number, independent from the existing TCP VLESS listener).
+4. Regenerate subscriptions - each user gets an additional `hysteria2://` link per node they can see, using the same UUID as their VLESS credential.
+
+Notes:
+
+- Hysteria2 is direct-connect only: it does not go through the HAProxy relay mesh (`relay/`), which is TCP passthrough only by design. There's no "via entry node" Hysteria2 link.
+- `masquerade_url` (what a non-authenticated/probing connection is proxied to) defaults to `https://<xray.reality.sni>` if left empty.
+- The ACME cert cache lives under each node's `hysteria/acme/` on the remote host and is never touched by redeploys (same treatment as `adguard/work`), so re-deploying doesn't re-issue certificates.
 
 ## Using `mesh.sh`
 

@@ -26,6 +26,8 @@ source "$SCRIPT_DIR/../lib/common.sh"
 source "$SCRIPT_DIR/../lib/inventory.sh"
 # shellcheck source=lib/xray_render.sh
 source "$SCRIPT_DIR/lib/xray_render.sh"
+# shellcheck source=lib/hysteria_render.sh
+source "$SCRIPT_DIR/lib/hysteria_render.sh"
 # shellcheck source=lib/xray_ctl.sh
 source "$SCRIPT_DIR/lib/xray_ctl.sh"
 
@@ -61,12 +63,13 @@ generate_reality_keys_if_missing() {
 }
 
 deploy_one() {
-    local name="$1" host stage rc=0
+    local name="$1" host stage rc=0 hysteria_enabled
     host=$(inv_node_field "$INVENTORY" "$name" host)
     if [ -z "$host" ] || [ "$host" = "null" ]; then
         error "no host for node '$name'"
         return 1
     fi
+    hysteria_enabled=$(inv_hysteria_enabled "$INVENTORY")
 
     mesh_resolve_ssh "$INVENTORY" "$name"
 
@@ -82,6 +85,12 @@ deploy_one() {
     cp "$ASSETS_DIR/stats.py" "$stage/stats.py"
     cp "$ASSETS_DIR/docker-compose.xray.yml" "$stage/docker-compose.yml"
 
+    render_hysteria_env "$INVENTORY" >> "$stage/.env"
+    if [ "$hysteria_enabled" = "true" ]; then
+        mkdir -p "$stage/hysteria"
+        render_hysteria_config "$INVENTORY" "$name" > "$stage/hysteria/config.yaml"
+    fi
+
     info "$name ($host): preparing host"
     xray_check_docker "$host" || rc=1
     xray_check_docker_compose "$host" || rc=1
@@ -89,7 +98,7 @@ deploy_one() {
     xray_check_bbr "$host"
 
     if [ "$rc" -eq 0 ]; then
-        xray_apply "$host" "$XRAY_DEPLOY_DIR" "$stage" || rc=1
+        xray_apply "$host" "$XRAY_DEPLOY_DIR" "$stage" "$hysteria_enabled" || rc=1
         xray_install_system_files "$host" "$ASSETS_DIR/xray-logrotate.conf" || true
     fi
 
