@@ -89,11 +89,20 @@ REMOTE
 }
 
 xray_verify() {
-    local host="$1" hysteria_enabled="$2"
+    local host="$1" hysteria_enabled="$2" timeout="${MESH_TIMEOUT:-120}"
     local -a containers=(adguard-home warp xray)
     [ "$hysteria_enabled" != true ] || containers+=(hysteria)
     compose_wait_healthy "$host" "${MESH_TIMEOUT:-120}" "${containers[@]}" || return 1
-    remote_bash "$host" <<'REMOTE'
-sudo docker exec xray python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:9091/health", timeout=4).read()' >/dev/null
+    remote_bash "$host" "$timeout" <<'REMOTE'
+set -euo pipefail
+deadline=$((SECONDS + $1))
+while [ "$SECONDS" -lt "$deadline" ]; do
+    if sudo docker exec xray python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:9091/health", timeout=4).read()' >/dev/null 2>&1; then
+        exit 0
+    fi
+    sleep 2
+done
+printf '%s\n' 'xray statistics endpoint did not become ready' >&2
+exit 1
 REMOTE
 }

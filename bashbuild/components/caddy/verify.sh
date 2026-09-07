@@ -13,6 +13,7 @@ caddy_validate_stage() {
     remote_bash "$host" "$deploy_dir/.staging/$run_id" <<'REMOTE'
 set -euo pipefail
 cd "$1"
+trap 'sudo docker compose -f compose.yml down --remove-orphans >/dev/null 2>&1 || true' EXIT
 sudo docker compose -f compose.yml run --rm --no-deps --quiet-pull --entrypoint caddy caddy-subs \
     validate --config /etc/caddy/Caddyfile --adapter caddyfile
 REMOTE
