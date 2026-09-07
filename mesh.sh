@@ -6,6 +6,7 @@
 #
 # Usage:
 #   relay-mesh/mesh.sh                          interactive menu
+#   relay-mesh/mesh.sh check                    run read-only local validation
 #
 #   -- everything --
 #   relay-mesh/mesh.sh deploy-all                deploy-nodes -> deploy-stats -> subs-generate -> subs-sync
@@ -368,6 +369,9 @@ fi
 
 CMD="$1"; shift
 case "$CMD" in
+    # -- local validation --
+    check)            "$SCRIPT_DIR/scripts/check.sh" ;;
+
     # -- everything --
     deploy-all)       run_deploy_all ;;
 

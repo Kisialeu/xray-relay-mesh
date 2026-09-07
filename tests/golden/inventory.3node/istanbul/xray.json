@@ -1,0 +1,300 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
+  },
+  "api": {
+    "tag": "api",
+    "services": [
+      "StatsService",
+      "HandlerService"
+    ]
+  },
+  "dns": {
+    "tag": "dns-out",
+    "servers": [
+      {
+        "address": "172.29.0.10",
+        "port": 53
+      },
+      {
+        "address": "94.140.14.14",
+        "port": 53
+      }
+    ],
+    "queryStrategy": "UseIPv4",
+    "disableFallback": true,
+    "disableCache": false
+  },
+  "policy": {
+    "levels": {
+      "0": {
+        "handshake": 4,
+        "connIdle": 300,
+        "uplinkOnly": 2,
+        "downlinkOnly": 2,
+        "bufferSize": 8176,
+        "statsUserUplink": true,
+        "statsUserDownlink": true,
+        "statsUserOnline": true
+      }
+    },
+    "system": {
+      "statsInboundUplink": true,
+      "statsInboundDownlink": true,
+      "statsOutboundUplink": true,
+      "statsOutboundDownlink": true
+    }
+  },
+  "stats": {},
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 4431,
+      "protocol": "dokodemo-door",
+      "tag": "reality-dest",
+      "settings": {
+        "address": "www.googletagmanager.com",
+        "port": 443,
+        "network": "tcp"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": false
+      }
+    },
+    {
+      "port": 443,
+      "protocol": "vless",
+      "tag": "vless-in",
+      "settings": {
+        "clients": [
+          {
+            "id": "8cebfbbb-4ef8-4d5a-8f48-546ee58f49ec",
+            "email": "Jean",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          },
+          {
+            "id": "b00fc7ab-21fe-4d1c-a3ee-928f5036ffee",
+            "email": "Frank",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          },
+          {
+            "id": "8cebfbbb-4ef8-4d5a-8f48-546ee58f49ec",
+            "email": "demo_user",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "127.0.0.1:4431",
+          "serverNames": [
+            "www.googletagmanager.com"
+          ],
+          "privateKey": "",
+          "shortIds": [
+            "891f7782a08e5aae",
+            "a1b2c3d4e5f60718",
+            "deadbeef12345678",
+            "0102030405060708"
+          ],
+          "minClientVer": "0.0.0",
+          "maxTimeDiff": 60000,
+          "padding": true,
+          "spiderX": "/",
+          "limitFallbackUpload": {
+            "capacity": 10000,
+            "rate": 1000
+          },
+          "limitFallbackDownload": {
+            "capacity": 10000,
+            "rate": 1000
+          }
+        },
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpKeepAliveIdle": 30,
+          "tcpKeepAliveInterval": 30,
+          "tcpUserTimeout": 10000,
+          "tcpcongestion": "bbr"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      },
+      "tag": "api-in"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "socks",
+      "tag": "warp",
+      "settings": {
+        "servers": [
+          {
+            "address": "warp",
+            "port": 1080
+          }
+        ]
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpKeepAliveIdle": 30,
+          "tcpKeepAliveInterval": 30,
+          "tcpUserTimeout": 10000,
+          "tcpcongestion": "bbr"
+        }
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "direct",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpKeepAliveInterval": 30,
+          "tcpcongestion": "bbr",
+          "tcpUserTimeout": 10000,
+          "mark": 0
+        }
+      }
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block",
+      "settings": {
+        "response": {
+          "type": "http"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "domainMatcher": "mph",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "api-in"
+        ],
+        "outboundTag": "api"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "dns-out"
+        ],
+        "ip": [
+          "172.29.0.10/32"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "dns-out"
+        ],
+        "outboundTag": "warp"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "reality-dest"
+        ],
+        "domain": [
+          "www.googletagmanager.com"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "reality-dest"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "2000::/3",
+          "fc00::/7",
+          "fe80::/10",
+          "::1/128"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "172.29.0.10/32"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "127.0.0.0/8",
+          "169.254.0.0/16"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "warp"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-gov-ru"
+        ],
+        "outboundTag": "warp"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "vless-in"
+        ],
+        "outboundTag": "direct"
+      }
+    ]
+  }
+}

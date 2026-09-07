@@ -1,0 +1,34 @@
+listen: ":443"
+
+acme:
+  domains:
+    - "frankfurt.hysteria.example.com"
+  email: "admin@example.com"
+  type: http
+  dir: /acme
+
+auth:
+  type: userpass
+  userpass:
+    "Frank": "b00fc7ab-21fe-4d1c-a3ee-928f5036ffee"
+    "demo_user": "8cebfbbb-4ef8-4d5a-8f48-546ee58f49ec"
+
+masquerade:
+  type: proxy
+  proxy:
+    url: "https://www.googletagmanager.com"
+    rewriteHost: true
+
+bandwidth:
+  up: 200 mbps
+  down: 200 mbps
+
+outbounds:
+  - name: direct
+    type: direct
+    direct:
+      mode: "4"
+
+trafficStats:
+  listen: ":9999"
+  secret: "null"
