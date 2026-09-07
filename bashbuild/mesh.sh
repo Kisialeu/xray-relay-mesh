@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Operator CLI for the Bash deployment framework.
 
-set -euo pipefail
+set -uo pipefail
 
 BASHBUILD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
@@ -18,6 +18,7 @@ source "$BASHBUILD_DIR/lib/commands.sh"
 usage() {
     cat <<'USAGE'
 Usage:
+  ./mesh.sh                         interactive terminal UI
   ./mesh.sh check
   ./mesh.sh render <xray|relay> --node NAME --output DIR
   ./mesh.sh plan <component|all> [--node NAME]
@@ -27,6 +28,7 @@ Usage:
   ./mesh.sh bootstrap --node NAME
   ./mesh.sh node <prune|remove|reset> --node NAME
   ./mesh.sh cdn <plan|apply|destroy>
+  ./mesh.sh stats tunnel
 
 Global options:
   --inventory PATH  --dry-run  --yes  --non-interactive
@@ -34,8 +36,17 @@ Global options:
 USAGE
 }
 
-[ $# -gt 0 ] || { usage; exit 1; }
-mesh_parse_args "$@"
+if [ $# -eq 0 ]; then
+    INVENTORY="${INVENTORY:-$MESH_DIR/configs/inventory.json}"
+    MESH_TIMEOUT="${MESH_TIMEOUT:-120}"
+    export INVENTORY MESH_TIMEOUT
+    # shellcheck source=lib/ui.sh
+    source "$BASHBUILD_DIR/lib/ui.sh"
+    mesh_ui_run
+    exit $?
+fi
+
+mesh_parse_args "$@" || exit 1
 
 case "$MESH_CLI_COMMAND" in
     check)
@@ -100,6 +111,11 @@ case "$MESH_CLI_COMMAND" in
             destroy) mesh_guard_non_interactive_change; "$MESH_DIR/infrastructure/cdn/destroy_cdn_cert.sh" "$INVENTORY" ;;
             *) error "unknown CDN operation: ${MESH_CLI_POSITIONAL[0]}"; exit 1 ;;
         esac
+        ;;
+    stats)
+        [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] && [ "${MESH_CLI_POSITIONAL[0]}" = tunnel ] \
+            || { error "usage: mesh.sh stats tunnel"; exit 1; }
+        "$MESH_DIR/bashbuild/components/stats/tunnel.sh" "$INVENTORY"
         ;;
     *) error "unknown command: $MESH_CLI_COMMAND"; usage >&2; exit 1 ;;
 esac

@@ -62,7 +62,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..23\n'
+printf '1..24\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -173,3 +173,7 @@ jq '
 ' "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/missing-hysteria-secret.json"
 assert_failure "Xray deploy validation requires pre-existing Hysteria secret" \
     inv_validate_xray_deploy_secrets "$TEST_TMP/missing-hysteria-secret.json"
+
+printf 'q\n' | INVENTORY="$ROOT_DIR/configs/examples/inventory.2node.json" "$ROOT_DIR/mesh.sh" \
+    | grep -F 'Xray Relay Mesh' >/dev/null || fail "no-argument CLI opens interactive UI"
+pass "no-argument CLI opens interactive UI"

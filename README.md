@@ -160,32 +160,32 @@ To use a different inventory file with the normalized CLI:
 To remove the deployed Xray and HAProxy applications, containers, deployment files, logs, and Xray system hooks from a server while keeping its inventory entry:
 
 ```bash
-./mesh.sh prune-node <node_name>
+./mesh.sh node prune --node NAME
 ```
 
 The command requires typing the node name to confirm. Preview the operation without changing the server:
 
 ```bash
-./mesh.sh prune-node <node_name> --dry-run
+./mesh.sh node prune --node NAME --dry-run
 ```
 
-Pruning does not remove Docker, system packages, BBR configuration, or the node from `inventory.json`. The node can be deployed again later with `deploy-node` and `deploy-relay`.
+Pruning does not remove Docker, system packages, BBR configuration, or the node from `configs/inventory.json`. The node can be deployed again later with normalized deploy commands.
 
 To remove a node from the mesh bookkeeping:
 
 ```bash
-./mesh.sh remove-node <node_name>
-./mesh.sh deploy-relay-all
-./mesh.sh subs-generate
-./mesh.sh subs-sync
+./mesh.sh node remove --node NAME
+./mesh.sh deploy relay
+./mesh.sh deploy subscriptions
 ```
 
-`remove-node/remove_node.sh` updates only the inventory. It does not shut down the old server.
+Node removal updates only the inventory. It does not shut down the old server.
 
-To roll back HAProxy on one node:
+To roll back Xray or HAProxy on one node:
 
 ```bash
-./mesh.sh rollback <node_name>
+./mesh.sh rollback xray --node NAME
+./mesh.sh rollback relay --node NAME
 ```
 
 ## Notes
@@ -206,7 +206,7 @@ How to read it:
 For `inventory.3node.json`:
 
 - `server1` is the input node because it has `is_relay_entry: true`
-- `server2` and `server2` are regular mesh nodes
+- `server2` and `server3` are regular mesh nodes
 - users get direct links to all visible nodes
 - users also get relay links `via server1` for every peer of `server1`
 - more generally, every relay entry node can communicate with all other nodes through its per-peer relay listeners
