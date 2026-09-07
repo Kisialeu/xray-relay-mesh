@@ -190,8 +190,12 @@ REMOTE
 }
 
 remote_cleanup_stage() {
-    local host="$1" deploy_dir="$2" run_id="$3"
-    remote_bash "$host" "$deploy_dir/.staging/$run_id" <<'REMOTE'
+    local host="$1" deploy_dir="$2" run_id="$3" network_suffix="${4:-}"
+    remote_bash "$host" "$deploy_dir/.staging/$run_id" "$run_id" "$network_suffix" <<'REMOTE'
 sudo rm -rf -- "$1"
+if [ -n "$3" ]; then
+    network="${2,,}_$3"
+    sudo docker network rm "$network" >/dev/null 2>&1 || true
+fi
 REMOTE
 }

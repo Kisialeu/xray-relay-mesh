@@ -37,7 +37,7 @@ xray_image=$(awk -F= '$1 == "XRAY_IMAGE" { print substr($0, index($0, "=") + 1) 
 [ -n "$xray_image" ]
 sudo docker run --rm --network none \
     -v "$stage/config/config.json:/etc/xray/config.json:ro" \
-    "$xray_image" run -test -config /etc/xray/config.json
+    "$xray_image" xray run -test -config /etc/xray/config.json
 if [ "$2" = true ]; then
     hysteria_image=$(awk -F= '$1 == "HYSTERIA_IMAGE" { print substr($0, index($0, "=") + 1) }' "$stage/.env")
     [ -n "$hysteria_image" ]
