@@ -17,7 +17,7 @@
 | `./mesh.sh cdn apply` | AWS and remote | State-changing, billable | Creates or updates AWS resources and firewall rules. |
 | `./mesh.sh cdn destroy` | AWS and remote | Destructive | Deletes AWS resources and reverses managed firewall changes. |
 
-Legacy commands remain compatibility aliases during migration. The current certificate scripts are state-changing and must not be used as plan operations.
+There are no legacy command aliases. The certificate scripts are state-changing and must not be used as plan operations.
 
 ## Deployment dependency graph
 

@@ -120,26 +120,13 @@ mesh_command_render() {
             source "$MESH_DIR/bashbuild/components/xray/render.sh"
             # shellcheck source=../components/xray/hysteria_render.sh
             source "$MESH_DIR/bashbuild/components/xray/hysteria_render.sh"
-            mkdir -p "$output/config" "$output/adguard/conf"
-            render_xray_env "$inventory" "$node" > "$output/.env"
-            render_hysteria_env "$inventory" "$node" >> "$output/.env"
-            render_xray_config_json "$inventory" "$node" > "$output/config/config.json"
-            render_adguard_yaml "$inventory" > "$output/adguard/conf/AdGuardHome.yaml"
-            cp "$MESH_DIR/services/xray/entrypoint.sh" "$output/entrypoint.sh"
-            cp "$MESH_DIR/services/xray/stats.py" "$output/stats.py"
-            cp "$MESH_DIR/services/xray/compose.yml" "$output/docker-compose.yml"
-            chmod 0600 "$output/.env" "$output/config/config.json"
-            chmod 0644 "$output/adguard/conf/AdGuardHome.yaml" "$output/stats.py" "$output/docker-compose.yml"
-            chmod 0755 "$output/entrypoint.sh"
-            if [ "$(inv_node_has_protocol "$inventory" "$node" hysteria)" = true ]; then
-                mkdir -p "$output/hysteria"
-                render_hysteria_config "$inventory" "$node" > "$output/hysteria/config.yaml"
-                chmod 0600 "$output/hysteria/config.yaml"
-            fi
+            # shellcheck source=../components/xray/stage.sh
+            source "$MESH_DIR/bashbuild/components/xray/stage.sh"
+            xray_render_stage "$inventory" "$node" "$output"
             ;;
         *) error "render is not yet available for component: $component"; return 1 ;;
     esac
-    stage_write_manifest "$output"
+    [ -f "$output/.mesh-manifest" ] || stage_write_manifest "$output"
     success "rendered $component for $node to $output"
 }
 

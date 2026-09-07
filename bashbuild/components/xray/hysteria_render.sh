@@ -3,7 +3,7 @@
 # from inventory.json. Hysteria2 is a separate UDP/QUIC server, not an Xray
 # protocol - see inv_hysteria_* / inv_node_tls_domain in ../../lib/inventory.sh
 # and the "Hysteria2 (optional)" section of the top-level README.
-# Sourced by deploy/deploy_nodes.sh - not meant to be run directly.
+# Sourced by the Xray component controller - not meant to be run directly.
 
 # Always emitted (even when this node has no "hysteria" protocol) so
 # HYSTERIA_IMAGE is available for the "hysteria" service's image default in
@@ -21,7 +21,7 @@ render_hysteria_env() {
     img=$(inv_image_hysteria "$file")
     if [ "$enabled" = "true" ]; then
         profiles="hysteria"
-        secret=$(inv_node_hysteria_stats_secret "$file" "$node")
+        secret=$(inv_shared_hysteria_stats_secret "$file")
         port=$(inv_hysteria_stats_port "$file")
     fi
 
@@ -57,7 +57,7 @@ render_hysteria_config() {
     down=$(inv_hysteria_down_mbps "$file")
     users_json=$(inv_xray_users_json "$file")
     obfs_password=$(inv_hysteria_obfs_password "$file")
-    stats_secret=$(inv_node_hysteria_stats_secret "$file" "$node")
+    stats_secret=$(inv_shared_hysteria_stats_secret "$file")
     stats_port=$(inv_hysteria_stats_port "$file")
 
     if [ -z "$masquerade" ]; then

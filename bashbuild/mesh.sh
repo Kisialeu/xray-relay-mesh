@@ -68,6 +68,7 @@ case "$MESH_CLI_COMMAND" in
         mesh_guard_non_interactive_change
         case "${MESH_CLI_POSITIONAL[0]}" in
             relay) source "$BASHBUILD_DIR/components/relay/deploy.sh"; relay_rollback_one "$INVENTORY" "$MESH_CLI_NODE" ;;
+            xray|nodes) source "$BASHBUILD_DIR/components/xray/deploy.sh"; xray_rollback_one "$INVENTORY" "$MESH_CLI_NODE" ;;
             *) error "rollback is not available for component: ${MESH_CLI_POSITIONAL[0]}"; exit 1 ;;
         esac
         ;;

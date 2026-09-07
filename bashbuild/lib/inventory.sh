@@ -218,7 +218,7 @@ inv_validate() {
     local hysteria_nodes
     hysteria_nodes=$(jq -r '.nodes[] | select((.protocols // ["xray"]) | index("hysteria")) | .name' "$file")
     if [ -n "$hysteria_nodes" ]; then
-        local hysteria_email missing_tls_domain
+        local hysteria_email missing_tls_domain shared_secret_count
         hysteria_email=$(inv_hysteria_acme_email "$file")
         if [ -z "$hysteria_email" ]; then
             error "hysteria.acme_email is required when any node has \"hysteria\" in its protocols: $hysteria_nodes"
@@ -233,6 +233,19 @@ inv_validate() {
         ' "$file")
         if [ -n "$missing_tls_domain" ]; then
             error "node(s) with \"hysteria\" in protocols require tls_domain (ACME cannot issue for a bare IP): $missing_tls_domain"
+            return 1
+        fi
+
+        shared_secret_count=$(jq -r '
+            [.nodes[]
+             | select((.protocols // ["xray"]) | index("hysteria"))
+             | (.hysteria_stats_secret // "")
+             | select(length > 0)]
+            | unique
+            | length
+        ' "$file")
+        if [ "$shared_secret_count" -gt 1 ]; then
+            error "hysteria-enabled nodes must use the same hysteria_stats_secret"
             return 1
         fi
     fi
@@ -323,6 +336,27 @@ inv_xray_has_reality_keys() {
     [ -n "$priv" ] && [ -n "$pub" ]
 }
 
+inv_validate_xray_deploy_secrets() {
+    local file="$1" missing_hysteria_secret
+    if ! inv_xray_has_reality_keys "$file"; then
+        error "xray deployment requires existing Reality private_key and public_key values"
+        return 1
+    fi
+
+    missing_hysteria_secret=$(jq -r '
+        .nodes[]
+        | select((.protocols // ["xray"]) | index("hysteria"))
+        | select((.hysteria_stats_secret // "") == "")
+        | .name
+    ' "$file")
+    if [ -n "$missing_hysteria_secret" ]; then
+        error "hysteria-enabled node(s) missing shared hysteria_stats_secret: $missing_hysteria_secret"
+        return 1
+    fi
+
+    return 0
+}
+
 inv_atomic_update() {
     local file="$1"
     shift
@@ -357,14 +391,6 @@ inv_atomic_update() {
     return "$rc"
 }
 
-# Persists generated Reality keys back into the inventory file in place
-# (atomic write via temp file + mv) so every node stays in sync going forward.
-inv_xray_set_reality_keys() {
-    local file="$1" priv="$2" pub="$3"
-    inv_atomic_update "$file" --arg priv "$priv" --arg pub "$pub" \
-        '.xray.reality.private_key = $priv | .xray.reality.public_key = $pub'
-}
-
 # Removes node $2 from the inventory in place (used by remove_node.sh).
 inv_remove_node() {
     local file="$1" name="$2"
@@ -388,7 +414,7 @@ inv_subs_origin_verify_secret() { jq -r '.subs.origin_verify_secret // ""' "$1";
 # / images.adguard to a pinned tag or digest (e.g. "teddysun/xray:26.7.11" or
 # "teddysun/xray@sha256:<digest>") - that is the recommended way to make a
 # deploy reproducible. These are rendered into the per-node .env, so a change
-# here reaches every node on the next deploy/deploy_nodes run.
+# here reaches every node on the next Xray deployment.
 inv_image_xray()    { jq -r '.images.xray // "teddysun/xray:latest"' "$1"; }
 inv_image_warp()    { jq -r '.images.warp // "caomingjun/warp:latest"' "$1"; }
 inv_image_adguard() { jq -r '.images.adguard // "adguard/adguardhome:latest"' "$1"; }
@@ -422,19 +448,18 @@ inv_hysteria_stats_port()     { jq -r '.hysteria.stats_port // 9999' "$1"; }
 
 inv_node_tls_domain() { inv_node_field "$1" "$2" tls_domain; }
 
-# Per-node trafficStats secret (auto-generated and persisted the same way as
-# xray.reality keys - see generate_hysteria_stats_secrets_if_missing in
-# deploy/deploy_nodes.sh). Deliberately per-node, not shared like
-# acme_email/obfs_password: this secret never leaves the node (stats.py
-# reads it from .env to call hysteria's API over the private docker network
-# on that same host only), so there is no operational cost to keeping every
-# node's secret independent - only a security upside.
+# Every Hysteria-enabled node must use the same trafficStats secret. Validation
+# rejects divergent values without logging them. Deployment never generates or
+# persists secrets.
 inv_node_hysteria_stats_secret() { inv_node_field "$1" "$2" hysteria_stats_secret; }
 
-inv_node_set_hysteria_stats_secret() {
-    local file="$1" name="$2" secret="$3"
-    inv_atomic_update "$file" --arg n "$name" --arg s "$secret" \
-        '.nodes |= map(if .name == $n then .hysteria_stats_secret = $s else . end)'
+inv_shared_hysteria_stats_secret() {
+    jq -r '
+        first(.nodes[]
+              | select((.protocols // ["xray"]) | index("hysteria"))
+              | (.hysteria_stats_secret // "")
+              | select(length > 0)) // ""
+    ' "$1"
 }
 
 # Generic per-node protocol membership check ("true"/"false" string, same

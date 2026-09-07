@@ -1,15 +1,14 @@
 # xray-relay-mesh
 
-`xray-relay-mesh` is a Bash-based deployment toolkit for a small Xray mesh:
+`xray-relay-mesh` is a Bash-based deployment framework for a small Xray mesh:
 
-- `deploy/` provisions and updates Xray on each node
-- `relay/` renders and deploys per-node HAProxy relay configs
-- `subs/` generates per-user subscription files and syncs them to a Caddy host
-- `stats/` polls per-node Xray counters through authenticated HAProxy endpoints and serves a small UI/API
-- `certs/` creates and tears down the AWS CloudFront + ACM + Route53 setup used in front of the subscription server
+- `bashbuild/` owns deployment orchestration and reusable Bash primitives
+- `services/` contains runtime service payloads without remote orchestration
+- `infrastructure/` contains explicit host and AWS lifecycle operations
+- `configs/` contains ignored operator configuration and committed examples
 - `mesh.sh` is the single entrypoint for operators
 
-The repo is inventory-driven. You describe nodes, users, relay ports, and subscription settings in one `inventory.json`, then render and push everything from there.
+The repo is inventory-driven. You describe nodes, users, relay ports, and subscription settings in `configs/inventory.json`, then render and deploy from there.
 
 ## What it manages
 
@@ -46,8 +45,7 @@ Local tools used by the scripts:
 - `curl`
 - `sha256sum`
 - `base64`
-- `docker` locally only if Reality keys are missing and need to be generated automatically
-- `aws` CLI for `certs/setup_cdn_cert.sh` and `certs/destroy_cdn_cert.sh`
+- `aws` CLI for explicit CDN apply and destroy operations
 - `qrencode` is optional for QR outputs during subscription generation
 
 Remote hosts:
@@ -82,24 +80,26 @@ Important invariants enforced by the tooling:
 
 ## Quick start
 
-1. Copy one of the example inventories to `inventory.json`.
+1. Copy one of the example inventories to `configs/inventory.json`.
 2. Fill in:
    - real node hosts
    - per-node SSH credentials
    - `subs.domain`, `subs.caddy_host`, `subs.sub_secret`, `subs.origin_verify_secret`
+   - pre-existing `xray.reality.private_key` and `xray.reality.public_key`
+   - one shared `hysteria_stats_secret` value on every Hysteria-enabled node
    - `xray.users`
 
-If `xray.reality.private_key` and `xray.reality.public_key` are empty, `deploy/deploy_nodes.sh` will generate them once locally with Docker and persist them back into `inventory.json`.
+Deployment never generates, rotates, or changes inventory secrets. Missing or divergent secret fields cause validation to fail without printing their values.
 
 ## Hysteria2 (optional)
 
-Hysteria2 ([apernet/hysteria](https://github.com/apernet/hysteria)) is a separate UDP/QUIC server, not an Xray protocol - `deploy/deploy_nodes.sh` runs it as its own container next to `xray`/`warp`/`adguard-home`, gated by a Docker Compose profile so `docker-compose.xray.yml` stays identical on every node whether it's on or not. It's opt-in **per node**, not a mesh-wide switch - every node always runs Xray (the relay mesh backbone), and only nodes that ask for it also run Hysteria2.
+Hysteria2 ([apernet/hysteria](https://github.com/apernet/hysteria)) is a separate UDP/QUIC server, not an Xray protocol. The Xray component controller runs it next to `xray`, `warp`, and `adguard-home` through a Compose profile. It is enabled per node.
 
 To enable it on a node:
 
 1. Set `hysteria.acme_email` in `inventory.json` (shared across every node that opts in - only needs setting once).
 2. On that node, point a real DNS A/AAAA record at its `host`/IP, set that name as the node's `tls_domain`, and add `"hysteria"` to the node's `protocols` array (e.g. `"protocols": ["xray", "hysteria"]`). The domain is required because Hysteria2 uses a real ACME (Let's Encrypt) certificate for TLS, and public CAs cannot issue a certificate for a bare IP address - unlike Reality, which borrows a foreign site's handshake and needs no domain of its own.
-3. Deploy that node as usual (`./mesh.sh deploy-node <node>` / `deploy-nodes`) - it opens port 80 for the ACME HTTP-01 challenge/renewal in addition to its existing `direct_port`, now also bound on UDP for Hysteria2 (same port number, independent from the existing TCP VLESS listener). Other nodes are unaffected.
+3. Deploy that node with `./mesh.sh deploy xray --node NAME`. It opens port 80 for the ACME HTTP-01 challenge and binds the node's `direct_port` on UDP for Hysteria2. Other nodes are unaffected.
 4. Regenerate subscriptions - each user gets an additional `hysteria2://` link for that node, using the same UUID as their VLESS credential.
 
 Notes:
@@ -110,7 +110,7 @@ Notes:
 
 ## Using `mesh.sh`
 
-`mesh.sh` is the operator entrypoint. In normal use, start there instead of calling the scripts in `deploy/`, `relay/`, `subs/`, `caddy/`, or `certs/` directly.
+`mesh.sh` is the operator entrypoint. Component controllers remain explicit internal implementation details.
 
 Open the interactive UI:
 
@@ -137,7 +137,7 @@ The normalized non-interactive interface is:
 ./mesh.sh plan <component|all> [--node NAME]
 ./mesh.sh deploy <component|all> [--node NAME]
 ./mesh.sh status [--node NAME]
-./mesh.sh rollback relay --node NAME
+./mesh.sh rollback <xray|relay> --node NAME
 ./mesh.sh bootstrap --node NAME
 ./mesh.sh node prune --node NAME
 ./mesh.sh node remove --node NAME
@@ -146,7 +146,7 @@ The normalized non-interactive interface is:
 ./mesh.sh cdn destroy
 ```
 
-Global options are `--inventory PATH`, `--dry-run`, `--yes`, `--non-interactive`, `--timeout SECONDS`, and `--verbose`. Render also accepts `--output DIR`. The previous direct subcommands remain compatibility aliases during component migration.
+Global options are `--inventory PATH`, `--dry-run`, `--yes`, `--non-interactive`, `--timeout SECONDS`, and `--verbose`. Render also accepts `--output DIR`. Legacy command aliases are not retained.
 
 To use a different inventory file with the normalized CLI:
 

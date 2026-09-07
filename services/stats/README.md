@@ -43,9 +43,9 @@ node B xray container
 
 The per-node stats wrapper stays bound to host loopback. Hysteria2's own
 `trafficStats` API is never published at all - the wrapper reaches it over
-the private docker network using a per-node secret
-(`nodes[].hysteria_stats_secret`, auto-generated and persisted by
-`deploy/deploy_nodes.sh`, same idiom as Reality keys). Central polling uses
+the private docker network using the shared secret stored in
+`nodes[].hysteria_stats_secret`. Every Hysteria-enabled node must contain the
+same value. Deployment validates but never generates or changes it. Central polling uses
 SSH; the optional HAProxy endpoint is not used by the central service.
 
 Required inventory fields:
@@ -80,15 +80,15 @@ Required inventory fields:
       "name": "turkey",
       "host": "185.231.111.204",
       "protocols": ["xray", "hysteria"],
-      "hysteria_stats_secret": "auto-generated-do-not-set-by-hand"
+      "hysteria_stats_secret": "same-pre-provisioned-value-on-enabled-nodes"
     }
   ]
 }
 ```
 
-`nodes[].protocols` defaults to `["xray"]` when omitted. `hysteria_stats_secret`
-is auto-generated per node by `deploy/deploy_nodes.sh` the first time that
-node has `hysteria` in its `protocols` - never needs to be set manually.
+`nodes[].protocols` defaults to `["xray"]` when omitted. Set
+`hysteria_stats_secret` before deployment and keep the same value on every
+Hysteria-enabled node.
 
 The service uses SQLAlchemy ORM for database access. On startup it creates the
 schema and any missing indexes from `stats/src/models.py`. It does not provide

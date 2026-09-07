@@ -1,155 +1,144 @@
 #!/usr/bin/env bash
-# Renders the Xray stack (.env, config.json, AdGuard Home
-# config, docker-compose.yml) for one or all nodes from inventory.json,
-# uploads it, and starts/reloads it idempotently. Run this BEFORE
-# relay-mesh/relay/deploy_mesh.sh - the relay mesh proxies to these nodes'
-# direct ports, so they need to be up first.
-#
-# Usage: relay-mesh/deploy/deploy_nodes.sh <all|node_name> [inventory.json]
-#
-# Env:
-#   SSH_KEY                - forces the same key for every node (else each
-#                            node's own required "ssh_key" from inventory.json)
-#   SSH_USER               - forces the same user for every node (else each
-#                            node's own required "ssh_user" from inventory.json)
-#   XRAY_DEPLOY_DIR        - remote deploy dir (default: /opt/xray-node)
-#   MESH_WEBHOOK_URL       - optional alert webhook on failure
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ASSETS_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)/services/xray"
+COMPONENT_XRAY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../lib/common.sh
+source "$COMPONENT_XRAY_DIR/../../lib/common.sh"
+# shellcheck source=../../lib/inventory.sh
+source "$COMPONENT_XRAY_DIR/../../lib/inventory.sh"
+# shellcheck source=../../lib/stage.sh
+source "$COMPONENT_XRAY_DIR/../../lib/stage.sh"
+# shellcheck source=../../lib/remote.sh
+source "$COMPONENT_XRAY_DIR/../../lib/remote.sh"
+# shellcheck source=../../lib/compose.sh
+source "$COMPONENT_XRAY_DIR/../../lib/compose.sh"
+# shellcheck source=render.sh
+source "$COMPONENT_XRAY_DIR/render.sh"
+# shellcheck source=hysteria_render.sh
+source "$COMPONENT_XRAY_DIR/hysteria_render.sh"
+# shellcheck source=stage.sh
+source "$COMPONENT_XRAY_DIR/stage.sh"
+# shellcheck source=verify.sh
+source "$COMPONENT_XRAY_DIR/verify.sh"
 
-# shellcheck source=../lib/common.sh
-source "$SCRIPT_DIR/../../lib/common.sh"
-# shellcheck source=../lib/inventory.sh
-source "$SCRIPT_DIR/../../lib/inventory.sh"
-# shellcheck source=lib/xray_render.sh
-source "$SCRIPT_DIR/render.sh"
-# shellcheck source=lib/hysteria_render.sh
-source "$SCRIPT_DIR/hysteria_render.sh"
-# shellcheck source=lib/xray_ctl.sh
-source "$SCRIPT_DIR/control.sh"
-# shellcheck source=../lib/stage.sh
-source "$SCRIPT_DIR/../../lib/stage.sh"
-
-usage() { echo "Usage: $0 <all|node_name> [inventory.json]" >&2; exit 1; }
-[ $# -ge 1 ] || usage
-
-TARGET="$1"
-INVENTORY="${2:-$MESH_DIR/configs/inventory.json}"
-mesh_validate_deploy_dir "$XRAY_DEPLOY_DIR" || exit 1
-
-# Reality keys/users are identical on every node (see inventory.json "xray"
-# block). Generate once locally and persist back into the inventory if
-# they're missing, so every subsequent deploy (and every node) uses the same
-# keys without any per-server generation step.
-generate_reality_keys_if_missing() {
-    local file="$1"
-    inv_xray_has_reality_keys "$file" && return 0
-
-    info "No Reality keys in inventory - generating (requires local docker)..."
-    command -v docker >/dev/null 2>&1 \
-        || { error "docker required locally to generate Reality keys (or set xray.reality.private_key/public_key manually)"; return 1; }
-
-    local keys priv pub
-    keys=$(docker run --rm teddysun/xray:latest xray x25519 2>/dev/null)
-    priv=$(echo "$keys" | grep "Private key" | awk '{print $3}')
-    pub=$(echo "$keys" | grep "Public key" | awk '{print $3}')
-    if [ -z "$priv" ] || [ -z "$pub" ]; then
-        error "failed to generate Reality keys"
-        return 1
-    fi
-
-    inv_xray_set_reality_keys "$file" "$priv" "$pub"
-    success "Generated and persisted new Reality keys to $file"
+xray_apply_services() {
+    local host="$1" deploy_dir="$2" hysteria_enabled="$3" mode="$4"
+    local -a services=(adguard-home warp xray)
+    [ "$hysteria_enabled" != true ] || services+=(hysteria)
+    xray_remove_disabled_hysteria "$host" "$deploy_dir" "$hysteria_enabled" || return 1
+    compose_apply "$host" "$deploy_dir" "$mode" "${services[@]}"
 }
 
-# One independent secret per hysteria-enabled node for its local trafficStats
-# API (see inv_node_hysteria_stats_secret in ../lib/inventory.sh) - generated
-# once and persisted, same idiom as Reality keys above, so stats polling
-# works with no manual secret-management step.
-generate_hysteria_stats_secrets_if_missing() {
-    local file="$1" name secret
-    command -v openssl >/dev/null 2>&1 || { error "openssl required locally to generate hysteria stats secrets"; return 1; }
+xray_deploy_one() {
+    local inventory="$1" node="$2" host stage_dir="" run_id local_digest remote_digest
+    local hysteria_enabled rc=0 changed=1 result
+    host=$(inv_node_field "$inventory" "$node" host)
+    hysteria_enabled=$(inv_node_has_hysteria "$inventory" "$node")
+    mesh_resolve_ssh "$inventory" "$node"
+    stage_create stage_dir xray
+    xray_render_stage "$inventory" "$node" "$stage_dir"
+    jq -e . "$stage_dir/config/config.json" >/dev/null
+    local_digest=$(mesh_sha256_file "$stage_dir/.mesh-manifest")
+    run_id="$(date -u '+%Y%m%dT%H%M%SZ')-$$-$RANDOM"
 
-    while IFS= read -r name; do
-        [ -n "$name" ] || continue
-        secret=$(inv_node_hysteria_stats_secret "$file" "$name")
-        [ -n "$secret" ] && [ "$secret" != "null" ] && continue
-        secret=$(openssl rand -hex 32)
-        inv_node_set_hysteria_stats_secret "$file" "$name" "$secret"
-        success "Generated and persisted hysteria stats secret for node '$name'"
-    done < <(inv_hysteria_node_names "$file")
-}
-
-deploy_one() {
-    local name="$1" host stage rc=0 hysteria_enabled
-    host=$(inv_node_field "$INVENTORY" "$name" host)
-    if [ -z "$host" ] || [ "$host" = "null" ]; then
-        error "no host for node '$name'"
-        return 1
-    fi
-    hysteria_enabled=$(inv_node_has_hysteria "$INVENTORY" "$name")
-
-    mesh_resolve_ssh "$INVENTORY" "$name"
-
-    stage="$(mktemp -d)"
-    # shellcheck disable=SC2064
-    trap "rm -rf '$stage'" RETURN
-
-    mkdir -p "$stage/config" "$stage/adguard/conf"
-    render_xray_env "$INVENTORY" "$name" > "$stage/.env"
-    render_xray_config_json "$INVENTORY" "$name" > "$stage/config/config.json"
-    render_adguard_yaml "$INVENTORY" > "$stage/adguard/conf/AdGuardHome.yaml"
-    cp "$ASSETS_DIR/entrypoint.sh" "$stage/entrypoint.sh"
-    cp "$ASSETS_DIR/stats.py" "$stage/stats.py"
-    cp "$ASSETS_DIR/compose.yml" "$stage/docker-compose.yml"
-
-    render_hysteria_env "$INVENTORY" "$name" >> "$stage/.env"
-    if [ "$hysteria_enabled" = "true" ]; then
-        mkdir -p "$stage/hysteria"
-        render_hysteria_config "$INVENTORY" "$name" > "$stage/hysteria/config.yaml"
-    fi
-    chmod 0600 "$stage/.env" "$stage/config/config.json"
-    chmod 0644 "$stage/adguard/conf/AdGuardHome.yaml" "$stage/docker-compose.yml" "$stage/stats.py"
-    chmod 0755 "$stage/entrypoint.sh"
-    [ "$hysteria_enabled" = "true" ] && chmod 0600 "$stage/hysteria/config.yaml"
-
-    info "$name ($host): preparing host"
-    xray_check_docker "$host" || rc=1
-    xray_check_docker_compose "$host" || rc=1
-    xray_check_remote_deps "$host" || rc=1
-    xray_check_bbr "$host" || rc=1
-    [ "$hysteria_enabled" != "true" ] || xray_check_udp_buffers "$host" "$XRAY_DEPLOY_DIR" || rc=1
+    info "$node ($host): deploying Xray transaction $run_id"
+    xray_remote_preflight "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" || rc=1
+    if [ "$rc" -eq 0 ]; then remote_lock_acquire "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1; fi
+    if [ "$rc" -eq 0 ]; then xray_prepare_persistent "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" || rc=1; fi
+    if [ "$rc" -eq 0 ]; then remote_upload_stage "$host" "$stage_dir" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1; fi
+    if [ "$rc" -eq 0 ]; then xray_validate_stage "$host" "$XRAY_DEPLOY_DIR" "$run_id" "$hysteria_enabled" || rc=1; fi
 
     if [ "$rc" -eq 0 ]; then
-        xray_apply "$host" "$XRAY_DEPLOY_DIR" "$stage" "$hysteria_enabled" || rc=1
-        xray_install_system_files "$host" "$ASSETS_DIR/xray-logrotate.conf" || true
+        remote_digest=$(remote_managed_digest "$host" "$XRAY_DEPLOY_DIR" || true)
+        if [ "$remote_digest" = "$local_digest" ]; then
+            changed=0
+            if ! xray_verify "$host" "$hysteria_enabled"; then
+                info "$node ($host): Xray is unchanged but not healthy; reconciling"
+                xray_apply_services "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" none || rc=1
+                [ "$rc" -ne 0 ] || xray_verify "$host" "$hysteria_enabled" || rc=1
+            fi
+        fi
     fi
 
-    if [ "$rc" -ne 0 ]; then
-        alert "xray deploy FAILED for $name ($host) - see log above"
+    if [ "$rc" -eq 0 ] && [ "$changed" -eq 1 ]; then
+        remote_backup_managed "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1
+        [ "$rc" -ne 0 ] || remote_promote_stage "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1
+        [ "$rc" -ne 0 ] || xray_sync_system_hooks "$host" "$XRAY_DEPLOY_DIR" || rc=1
+        [ "$rc" -ne 0 ] || xray_apply_services "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" pull || rc=1
+        [ "$rc" -ne 0 ] || xray_verify "$host" "$hysteria_enabled" || rc=1
+        if [ "$rc" -ne 0 ]; then
+            error "$node ($host): Xray apply failed; restoring managed backup"
+            if remote_restore_backup "$host" "$XRAY_DEPLOY_DIR" "$run_id"; then
+                hysteria_enabled=$(xray_remote_hysteria_enabled "$host" "$XRAY_DEPLOY_DIR" || printf 'false\n')
+                xray_sync_system_hooks "$host" "$XRAY_DEPLOY_DIR" >/dev/null 2>&1 || true
+                xray_apply_services "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" none >/dev/null 2>&1 || true
+            fi
+        else
+            remote_commit_backup "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1
+        fi
     fi
+
+    remote_cleanup_stage "$host" "$XRAY_DEPLOY_DIR" "$run_id" >/dev/null 2>&1 || true
+    remote_lock_release "$host" "$XRAY_DEPLOY_DIR" "$run_id" >/dev/null 2>&1 || true
+    if [ "$rc" -eq 0 ]; then
+        if [ "$changed" -eq 0 ]; then result=noop; else result=applied; fi
+        deployment_summary xray "$node" "$result" "$local_digest"
+    else
+        deployment_summary xray "$node" failed "$local_digest"
+        alert "Xray deploy FAILED for $node ($host)"
+    fi
+    stage_cleanup
     return "$rc"
 }
 
-mesh_check_local_deps
-inv_validate "$INVENTORY" || exit 1
-generate_reality_keys_if_missing "$INVENTORY" || exit 1
-generate_hysteria_stats_secrets_if_missing "$INVENTORY" || exit 1
-
-FAILED=0
-if [ "$TARGET" = "all" ]; then
-    for name in $(inv_node_names "$INVENTORY"); do
-        deploy_one "$name" || FAILED=1
-    done
-else
-    if ! inv_node_exists "$INVENTORY" "$TARGET"; then
-        error "node '$TARGET' not found in inventory: $INVENTORY"
-        exit 1
+xray_deploy_target() {
+    local inventory="$1" target="$2" node failed=0
+    mesh_check_local_deps
+    inv_validate "$inventory" || return 1
+    inv_validate_xray_deploy_secrets "$inventory" || return 1
+    mesh_validate_deploy_dir "$XRAY_DEPLOY_DIR" || return 1
+    if [ "$target" = all ]; then
+        while IFS= read -r node; do xray_deploy_one "$inventory" "$node" || failed=1; done < <(inv_node_names "$inventory")
+    else
+        inv_node_exists "$inventory" "$target" || { error "node '$target' not found in inventory: $inventory"; return 1; }
+        xray_deploy_one "$inventory" "$target" || failed=1
     fi
-    deploy_one "$TARGET" || FAILED=1
-fi
+    return "$failed"
+}
 
-exit "$FAILED"
+xray_rollback_one() {
+    local inventory="$1" node="$2" host backup_run lock_id hysteria_enabled rc=0
+    mesh_check_local_deps
+    inv_validate "$inventory" || return 1
+    inv_node_exists "$inventory" "$node" || { error "node not found: $node"; return 1; }
+    mesh_validate_deploy_dir "$XRAY_DEPLOY_DIR" || return 1
+    host=$(inv_node_field "$inventory" "$node" host)
+    mesh_resolve_ssh "$inventory" "$node"
+    backup_run=$(remote_bash "$host" "$XRAY_DEPLOY_DIR/.last-backup" <<'REMOTE' || true
+cat "$1" 2>/dev/null
+REMOTE
+    )
+    [ -n "$backup_run" ] || { error "$node ($host): no managed Xray backup is available"; return 1; }
+    lock_id="rollback-$$"
+    remote_lock_acquire "$host" "$XRAY_DEPLOY_DIR" "$lock_id" || return 1
+    remote_restore_backup "$host" "$XRAY_DEPLOY_DIR" "$backup_run" || rc=1
+    if [ "$rc" -eq 0 ]; then
+        hysteria_enabled=$(xray_remote_hysteria_enabled "$host" "$XRAY_DEPLOY_DIR") || rc=1
+    fi
+    [ "$rc" -ne 0 ] || xray_sync_system_hooks "$host" "$XRAY_DEPLOY_DIR" || rc=1
+    [ "$rc" -ne 0 ] || xray_apply_services "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" none || rc=1
+    [ "$rc" -ne 0 ] || xray_verify "$host" "$hysteria_enabled" || rc=1
+    remote_lock_release "$host" "$XRAY_DEPLOY_DIR" "$lock_id" >/dev/null 2>&1 || true
+    if [ "$rc" -eq 0 ]; then
+        success "$node ($host): Xray rollback completed"
+        return 0
+    fi
+    error "$node ($host): Xray rollback failed"
+    return 1
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    [ $# -ge 1 ] || { error "usage: $0 <all|node_name> [inventory.json]"; exit 1; }
+    xray_deploy_target "${2:-$MESH_DIR/configs/inventory.json}" "$1"
+fi

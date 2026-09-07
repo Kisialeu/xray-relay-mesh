@@ -62,7 +62,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..19\n'
+printf '1..23\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -100,7 +100,7 @@ mkdir "$TEST_TMP/locked.json.lock"
 assert_failure "inventory mutation respects lock" env INVENTORY_LOCK_TIMEOUT=0 bash -c '
     source "$1/bashbuild/lib/common.sh"
     source "$1/bashbuild/lib/inventory.sh"
-    inv_xray_set_reality_keys "$2" private public
+    inv_stats_set_master "$2" suomi
 ' _ "$ROOT_DIR" "$TEST_TMP/locked.json"
 
 SSH_KEY="$TEST_TMP/key with spaces"
@@ -149,3 +149,27 @@ render_dir="$TEST_TMP/rendered xray"
 assert_success "normalized render creates a valid managed stage" \
     "$ROOT_DIR/mesh.sh" render xray --node suomi --output "$render_dir" --inventory "$ROOT_DIR/configs/examples/inventory.2node.json"
 stage_manifest_validate "$render_dir/.mesh-manifest" || fail "normalized render creates a valid managed stage"
+pass "normalized render manifest validates"
+
+jq '
+    .nodes[0].protocols = ["xray", "hysteria"]
+    | .nodes[0].tls_domain = "one.example.test"
+    | .nodes[0].hysteria_stats_secret = "shared-secret"
+    | .nodes[1].protocols = ["xray", "hysteria"]
+    | .nodes[1].tls_domain = "two.example.test"
+    | .nodes[1].hysteria_stats_secret = "different-secret"
+' "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/divergent-secrets.json"
+assert_failure "inventory rejects divergent Hysteria secrets" inv_validate "$TEST_TMP/divergent-secrets.json"
+
+jq '.xray.reality.private_key = "" | .xray.reality.public_key = ""' \
+    "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/missing-reality.json"
+assert_failure "Xray deploy validation requires pre-existing Reality keys" \
+    inv_validate_xray_deploy_secrets "$TEST_TMP/missing-reality.json"
+
+jq '
+    .nodes[0].protocols = ["xray", "hysteria"]
+    | .nodes[0].tls_domain = "one.example.test"
+    | .nodes[0].hysteria_stats_secret = ""
+' "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/missing-hysteria-secret.json"
+assert_failure "Xray deploy validation requires pre-existing Hysteria secret" \
+    inv_validate_xray_deploy_secrets "$TEST_TMP/missing-hysteria-secret.json"

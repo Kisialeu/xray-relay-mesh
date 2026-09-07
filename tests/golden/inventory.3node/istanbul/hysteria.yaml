@@ -32,4 +32,4 @@ outbounds:
 
 trafficStats:
   listen: ":9999"
-  secret: "null"
+  secret: ""
