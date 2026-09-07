@@ -51,6 +51,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck source=lib/inventory.sh
 source "$SCRIPT_DIR/lib/inventory.sh"
+# shellcheck source=lib/stage.sh
+source "$SCRIPT_DIR/lib/stage.sh"
+# shellcheck source=lib/args.sh
+source "$SCRIPT_DIR/lib/args.sh"
+# shellcheck source=lib/commands.sh
+source "$SCRIPT_DIR/lib/commands.sh"
 
 INVENTORY="${INVENTORY:-$SCRIPT_DIR/inventory.json}"
 
@@ -99,18 +105,7 @@ confirm_action() {
 # ---- everything ----
 
 run_deploy_all() {
-    info "1/4 Deploying Xray/Hysteria2 to all nodes"
-    "$SCRIPT_DIR/deploy/deploy_nodes.sh" all "$INVENTORY" \
-        || { error "Full deployment stopped: node deployment failed"; return 1; }
-    info "2/4 Deploying central stats backend"
-    "$SCRIPT_DIR/stats/deploy_stats.sh" "$INVENTORY" \
-        || { error "Full deployment stopped: stats deployment failed"; return 1; }
-    info "3/4 Generating subscriptions"
-    "$SCRIPT_DIR/subs/generate_subscriptions.sh" "$INVENTORY" \
-        || { error "Full deployment stopped: subscription generation failed"; return 1; }
-    info "4/4 Syncing subscriptions to Caddy"
-    "$SCRIPT_DIR/subs/sync_subscriptions.sh" "$INVENTORY" \
-        || { error "Full deployment failed: subscription sync failed"; return 1; }
+    mesh_command_deploy_all "$INVENTORY"
 }
 
 # ---- xray / hysteria2 ----
@@ -366,6 +361,85 @@ interactive_menu() {
 if [ $# -eq 0 ]; then
     interactive_menu
     exit 0
+fi
+
+# Normalized CLI. Legacy commands below remain compatibility aliases.
+NORMALIZED_CLI=0
+case "$1" in
+    check|render|plan|deploy|status|rollback|bootstrap|node|cdn|--*)
+        NORMALIZED_CLI=1 ;;
+esac
+# Preserve the legacy `rollback <node>` alias. The normalized form is
+# `rollback relay --node <node>`.
+if [ "$1" = rollback ] && [ $# -eq 2 ]; then
+    NORMALIZED_CLI=0
+fi
+
+if [ "$NORMALIZED_CLI" -eq 1 ]; then
+        mesh_parse_args "$@" || exit 1
+        case "$MESH_CLI_COMMAND" in
+            check) "$SCRIPT_DIR/scripts/check.sh" ;;
+            render)
+                [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] || { error "usage: mesh.sh render <component> --node NAME --output DIR"; exit 1; }
+                mesh_command_render "$INVENTORY" "${MESH_CLI_POSITIONAL[0]}" "$MESH_CLI_NODE" "$MESH_CLI_OUTPUT"
+                ;;
+            plan)
+                [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] || { error "usage: mesh.sh plan <component|all> [--node NAME]"; exit 1; }
+                mesh_command_plan "$INVENTORY" "${MESH_CLI_POSITIONAL[0]}" "$MESH_CLI_NODE"
+                ;;
+            deploy)
+                [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] || { error "usage: mesh.sh deploy <component|all> [--node NAME]"; exit 1; }
+                if [ "$MESH_CLI_DRY_RUN" -eq 1 ]; then
+                    mesh_command_plan "$INVENTORY" "${MESH_CLI_POSITIONAL[0]}" "$MESH_CLI_NODE"
+                else
+                    mesh_guard_non_interactive_change || exit 1
+                    mesh_command_deploy "$INVENTORY" "${MESH_CLI_POSITIONAL[0]}" "$MESH_CLI_NODE"
+                fi
+                ;;
+            status)
+                [ "${#MESH_CLI_POSITIONAL[@]}" -eq 0 ] || { error "usage: mesh.sh status [--node NAME]"; exit 1; }
+                mesh_command_status "$INVENTORY" "$MESH_CLI_NODE"
+                ;;
+            rollback)
+                [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] || { error "usage: mesh.sh rollback <component> --node NAME"; exit 1; }
+                mesh_require_node || exit 1
+                mesh_guard_non_interactive_change || exit 1
+                case "${MESH_CLI_POSITIONAL[0]}" in
+                    relay) "$SCRIPT_DIR/relay/rollback_mesh.sh" "$MESH_CLI_NODE" "$INVENTORY" ;;
+                    *) error "rollback is not yet available for component: ${MESH_CLI_POSITIONAL[0]}"; exit 1 ;;
+                esac
+                ;;
+            bootstrap)
+                mesh_require_node || exit 1
+                mesh_guard_non_interactive_change || exit 1
+                "$SCRIPT_DIR/bootstrap/bootstrap_node.sh" "$MESH_CLI_NODE" "$INVENTORY"
+                ;;
+            node)
+                [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] || { error "usage: mesh.sh node <prune|remove> --node NAME"; exit 1; }
+                mesh_require_node || exit 1
+                mesh_guard_non_interactive_change || exit 1
+                case "${MESH_CLI_POSITIONAL[0]}" in
+                    prune)
+                        MESH_NODE_ARGS=("$MESH_CLI_NODE" "$INVENTORY")
+                        [ "$MESH_CLI_DRY_RUN" -eq 0 ] || MESH_NODE_ARGS+=(--dry-run)
+                        "$SCRIPT_DIR/prune-node/prune_node.sh" "${MESH_NODE_ARGS[@]}"
+                        ;;
+                    remove) "$SCRIPT_DIR/remove-node/remove_node.sh" "$MESH_CLI_NODE" "$INVENTORY" ;;
+                    *) error "unknown node operation: ${MESH_CLI_POSITIONAL[0]}"; exit 1 ;;
+                esac
+                ;;
+            cdn)
+                [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] || { error "usage: mesh.sh cdn <plan|apply|destroy>"; exit 1; }
+                case "${MESH_CLI_POSITIONAL[0]}" in
+                    plan) mesh_command_cdn_plan "$INVENTORY" ;;
+                    apply) mesh_guard_non_interactive_change && "$SCRIPT_DIR/certs/setup_cdn_cert.sh" "$INVENTORY" ;;
+                    destroy) mesh_guard_non_interactive_change && "$SCRIPT_DIR/certs/destroy_cdn_cert.sh" "$INVENTORY" ;;
+                    *) error "unknown CDN operation: ${MESH_CLI_POSITIONAL[0]}"; exit 1 ;;
+                esac
+                ;;
+            *) error "unknown command: $MESH_CLI_COMMAND"; exit 1 ;;
+        esac
+        exit $?
 fi
 
 CMD="$1"; shift

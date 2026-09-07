@@ -56,7 +56,7 @@ Remote hosts:
 
 - SSH access with the per-node `ssh_user` / `ssh_key` declared in inventory
 - `sudo` on the target hosts
-- Docker and Docker Compose plugin will be installed automatically if missing
+- Docker, Docker Compose, `zstd`, and cron; install them explicitly with `./mesh.sh bootstrap --node NAME`
 
 ## Inventory
 
@@ -131,29 +131,29 @@ The menu exposes the operational flow:
 - remove a node from inventory
 - set up or destroy the CDN certificate stack
 
-`mesh.sh` also supports direct subcommands when you want to script the same actions:
+The normalized non-interactive interface is:
 
 ```bash
-./mesh.sh deploy-node <node_name>
-./mesh.sh deploy-nodes
-./mesh.sh deploy-relay <node_name>
-./mesh.sh deploy-relay-all
-./mesh.sh deploy-caddy
-./mesh.sh subs-generate
-./mesh.sh subs-sync
-./mesh.sh rollback <node_name>
-./mesh.sh prune-node <node_name>
-./mesh.sh remove-node <node_name>
-./mesh.sh cert-setup
-./mesh.sh cert-destroy
-./mesh.sh stats
-./mesh.sh deploy-stats
+./mesh.sh check
+./mesh.sh render <xray|relay> --node NAME --output DIR
+./mesh.sh plan <component|all> [--node NAME]
+./mesh.sh deploy <component|all> [--node NAME]
+./mesh.sh status [--node NAME]
+./mesh.sh rollback relay --node NAME
+./mesh.sh bootstrap --node NAME
+./mesh.sh node prune --node NAME
+./mesh.sh node remove --node NAME
+./mesh.sh cdn plan
+./mesh.sh cdn apply
+./mesh.sh cdn destroy
 ```
 
-To use a different inventory file:
+Global options are `--inventory PATH`, `--dry-run`, `--yes`, `--non-interactive`, `--timeout SECONDS`, and `--verbose`. Render also accepts `--output DIR`. The previous direct subcommands remain compatibility aliases during component migration.
+
+To use a different inventory file with the normalized CLI:
 
 ```bash
-INVENTORY=./examples/inventory.2node.json ./mesh.sh
+./mesh.sh --inventory ./examples/inventory.2node.json plan all
 ```
 
 

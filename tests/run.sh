@@ -62,7 +62,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..16\n'
+printf '1..19\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/examples/inventory.3node.json"
 
@@ -138,3 +138,14 @@ pass "stage cleanup removes registered stages"
 
 printf '../escape\t600\t%s\n' "$(printf x | sha256sum | awk '{print $1}')" > "$TEST_TMP/unsafe.manifest"
 assert_failure "managed manifest rejects traversal" stage_manifest_validate "$TEST_TMP/unsafe.manifest"
+
+assert_success "normalized plan accepts global inventory option" \
+    "$ROOT_DIR/mesh.sh" --inventory "$ROOT_DIR/examples/inventory.2node.json" plan all
+
+assert_failure "non-interactive deploy requires explicit yes" \
+    "$ROOT_DIR/mesh.sh" deploy xray --node suomi --non-interactive --inventory "$ROOT_DIR/examples/inventory.2node.json"
+
+render_dir="$TEST_TMP/rendered xray"
+assert_success "normalized render creates a valid managed stage" \
+    "$ROOT_DIR/mesh.sh" render xray --node suomi --output "$render_dir" --inventory "$ROOT_DIR/examples/inventory.2node.json"
+stage_manifest_validate "$render_dir/.mesh-manifest" || fail "normalized render creates a valid managed stage"
