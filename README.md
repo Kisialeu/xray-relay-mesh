@@ -128,6 +128,7 @@ The menu exposes the operational flow:
 - roll back relay config on one node
 - remove a node from inventory
 - set up or destroy the CDN certificate stack
+- show which inbound ports and Route53 DNS records the current inventory requires
 
 The normalized non-interactive interface is:
 
@@ -144,6 +145,7 @@ The normalized non-interactive interface is:
 ./mesh.sh cdn plan
 ./mesh.sh cdn apply
 ./mesh.sh cdn destroy
+./mesh.sh network
 ```
 
 Global options are `--inventory PATH`, `--dry-run`, `--yes`, `--non-interactive`, `--timeout SECONDS`, and `--verbose`. Render also accepts `--output DIR`. Legacy command aliases are not retained.
@@ -154,6 +156,19 @@ To use a different inventory file with the normalized CLI:
 ./mesh.sh --inventory ./configs/examples/inventory.2node.json plan all
 ```
 
+
+## Network and DNS requirements
+
+```bash
+./mesh.sh network
+```
+
+Read-only report, generated dynamically from the current inventory (never from a fixed list, so it can't go stale as nodes/protocols/flags change):
+
+- which inbound ports each node needs opened in its firewall/security group, and why (Xray direct port, Hysteria2's UDP port and ACME port 80 on nodes that opt in, the stats scrape port when `stats.expose_via_haproxy` is set, the stats web dashboard port on `stats.master_node`, Caddy's origin port on `subs.caddy_host`, and relay ports on any node flagged `is_relay_entry`)
+- which Route53 records need to exist, grouped by hosted zone, for every `tls_domain`, `subs.caddy_host`, and `stats.web_domain` configured
+
+It never contacts a remote host or AWS. `subs.domain` is flagged as needing a CloudFront CNAME/ALIAS rather than resolved directly - see `./mesh.sh cdn plan` for that.
 
 ## Node lifecycle
 
@@ -192,6 +207,7 @@ To roll back Xray or HAProxy on one node:
 
 - The scripts are designed as push-model deploys from the local machine.
 - Logging goes to stderr in shared helpers so command substitution remains safe.
+- The interactive UI clears the screen before drawing each menu.
  
 ## Example 3-node network
 

@@ -68,6 +68,15 @@ Then edit `inventory.json` and replace the example values.
 - `sub_secret`: secret used to build private subscription URLs
 - `origin_verify_secret`: secret header value used between CloudFront and Caddy
 
+`hysteria`
+
+- Shared Hysteria2 (apernet/hysteria) settings for every node that opts in - see the `hysteria` entry in each node's `protocols` below. Not a mesh-wide switch: it's still off on any node that doesn't list `"hysteria"` in `protocols`.
+- `acme_email`: Let's Encrypt account email; required as soon as any node opts in
+- `masquerade_url`: what a non-authenticated/probing connection is proxied to; defaults to `https://<xray.reality.sni>` if left empty
+- `up_mbps`, `down_mbps`: bandwidth limits advertised to clients
+- `obfs_password`: optional Salamander obfuscation password, shared across every Hysteria-enabled node
+- `stats_port`: internal `trafficStats` API port (default `9999`); reached over the Xray container's own Docker network, never exposed on the host
+
 `xray`
 
 - Shared Xray settings for all nodes.
@@ -105,6 +114,9 @@ Each node has:
 - `ssh_user`: SSH user for that node
 - `ssh_key`: SSH private key path for that node
 - `is_relay_entry`: whether this node should be used as a curated relay entry in generated subscriptions
+- `protocols`: optional list of protocols this node runs; defaults to `["xray"]`, add `"hysteria"` to also run Hysteria2
+- `tls_domain`: required if `protocols` includes `"hysteria"` - a real DNS name pointing at this node's `host`, used for its Hysteria2 ACME certificate
+- `hysteria_stats_secret`: required if `protocols` includes `"hysteria"` - must be the same value on every Hysteria-enabled node
 
 ## How to create values
 

@@ -75,7 +75,7 @@ dmypy.json
 Thumbs.db
 
 # Environment variables / secrets
-.env
+configs/secrets/.env
 .env.*
 !.env.example
 web/.htpasswd
@@ -130,7 +130,7 @@ var/
 *.json.backup
 
 # env and subs files
-.env
+configs/secrets/.env
 *.token
 *.links
 *.b64

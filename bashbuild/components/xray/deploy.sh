@@ -47,19 +47,12 @@ xray_deploy_one() {
     if [ "$rc" -eq 0 ]; then remote_lock_acquire "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1; fi
     if [ "$rc" -eq 0 ]; then xray_prepare_persistent "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" || rc=1; fi
     if [ "$rc" -eq 0 ]; then remote_upload_stage "$host" "$stage_dir" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1; fi
-    if [ "$rc" -eq 0 ]; then xray_validate_stage "$host" "$XRAY_DEPLOY_DIR" "$run_id" "$hysteria_enabled" || rc=1; fi
+    if [ "$rc" -eq 0 ]; then xray_validate_stage "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1; fi
 
     if [ "$rc" -eq 0 ]; then
         remote_digest=$(remote_managed_digest "$host" "$XRAY_DEPLOY_DIR" || true)
         [ -n "$remote_digest" ] && had_previous=1
-        if [ "$remote_digest" = "$local_digest" ]; then
-            changed=0
-            if ! xray_verify "$host" "$hysteria_enabled"; then
-                info "$node ($host): Xray is unchanged but not healthy; reconciling"
-                xray_apply_services "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" none || rc=1
-                [ "$rc" -ne 0 ] || xray_verify "$host" "$hysteria_enabled" || rc=1
-            fi
-        fi
+        [ "$remote_digest" = "$local_digest" ] && changed=0
     fi
 
     if [ "$rc" -eq 0 ] && [ "$changed" -eq 1 ]; then

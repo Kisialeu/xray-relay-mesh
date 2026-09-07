@@ -152,6 +152,6 @@ write_subscription_files() {
         fi
 
         count=$(printf '%s\n' "$links_raw" | wc -l | tr -d ' ')
-        success "subscription: $email -> https://${sub_domain}/${token} ($count links)"
+        success "subscription generated: $email ($count links)"
     done < <(printf '%s\n' "$all_links" | cut -f1 | sort -u)
 }

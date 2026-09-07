@@ -28,6 +28,7 @@ Usage:
   ./mesh.sh bootstrap --node NAME
   ./mesh.sh node <prune|remove|reset> --node NAME
   ./mesh.sh cdn <plan|apply|destroy>
+  ./mesh.sh network
   ./mesh.sh stats tunnel
 
 Global options:
@@ -116,6 +117,10 @@ case "$MESH_CLI_COMMAND" in
         [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] && [ "${MESH_CLI_POSITIONAL[0]}" = tunnel ] \
             || { error "usage: mesh.sh stats tunnel"; exit 1; }
         "$MESH_DIR/bashbuild/components/stats/tunnel.sh" "$INVENTORY"
+        ;;
+    network)
+        [ "${#MESH_CLI_POSITIONAL[@]}" -eq 0 ] || { error "usage: mesh.sh network"; exit 1; }
+        mesh_command_network "$INVENTORY"
         ;;
     *) error "unknown command: $MESH_CLI_COMMAND"; usage >&2; exit 1 ;;
 esac

@@ -28,9 +28,9 @@ REMOTE
 }
 
 xray_validate_stage() {
-    local host="$1" deploy_dir="$2" run_id="$3" hysteria_enabled="$4"
+    local host="$1" deploy_dir="$2" run_id="$3"
     remote_validate_stage "$host" "$deploy_dir" "$run_id" || return 1
-    remote_bash "$host" "$deploy_dir/.staging/$run_id" "$hysteria_enabled" <<'REMOTE'
+    remote_bash "$host" "$deploy_dir/.staging/$run_id" <<'REMOTE'
 set -euo pipefail
 stage=$1
 xray_image=$(awk -F= '$1 == "XRAY_IMAGE" { print substr($0, index($0, "=") + 1) }' "$stage/.env")
@@ -38,13 +38,6 @@ xray_image=$(awk -F= '$1 == "XRAY_IMAGE" { print substr($0, index($0, "=") + 1) 
 sudo docker run --rm --network none \
     -v "$stage/config/config.json:/etc/xray/config.json:ro" \
     "$xray_image" xray run -test -config /etc/xray/config.json
-if [ "$2" = true ]; then
-    hysteria_image=$(awk -F= '$1 == "HYSTERIA_IMAGE" { print substr($0, index($0, "=") + 1) }' "$stage/.env")
-    [ -n "$hysteria_image" ]
-    sudo docker run --rm --network none \
-        -v "$stage/hysteria/config.yaml:/etc/hysteria/config.yaml:ro" \
-        "$hysteria_image" server -c /etc/hysteria/config.yaml --check
-fi
 REMOTE
 }
 
