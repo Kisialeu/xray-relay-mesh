@@ -45,6 +45,8 @@ HOST="$(inv_node_field "$INVENTORY" "$NODE" host)"
 
 XRAY_DIR="${XRAY_DEPLOY_DIR:-/opt/xray-node}"
 RELAY_DIR="${RELAY_DEPLOY_DIR:-/opt/relay-node}"
+mesh_validate_deploy_dir "$XRAY_DIR" || exit 1
+mesh_validate_deploy_dir "$RELAY_DIR" || exit 1
 
 echo "Node:      $NODE ($HOST)"
 echo "Inventory: $INVENTORY (will not be modified)"

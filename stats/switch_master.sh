@@ -12,6 +12,8 @@ NEW_MASTER="${1:-}"
 INVENTORY="${2:-$MESH_DIR/inventory.json}"
 STATS_DEPLOY_DIR="${STATS_DEPLOY_DIR:-/opt/xray-stats}"
 WEB_DEPLOY_DIR="${WEB_DEPLOY_DIR:-/opt/xray-web}"
+mesh_validate_deploy_dir "$STATS_DEPLOY_DIR" || exit 1
+mesh_validate_deploy_dir "$WEB_DEPLOY_DIR" || exit 1
 
 [ -n "$NEW_MASTER" ] || {
     error "usage: $0 <new-master-node> [inventory.json]"
@@ -40,7 +42,7 @@ OLD_MASTER="$(inv_stats_master_node "$INVENTORY")"
     exit 1
 }
 
-tmp_inventory="$(mktemp)"
+tmp_inventory="$(mktemp "${INVENTORY}.candidate.XXXXXX")"
 trap 'rm -f "$tmp_inventory"' EXIT
 jq --arg master "$NEW_MASTER" '.stats.master_node = $master' "$INVENTORY" > "$tmp_inventory"
 inv_validate "$tmp_inventory"
@@ -57,17 +59,22 @@ mesh_container_running "$NEW_HOST" xray-stats || {
     error "$NEW_MASTER: xray-stats container is not running; keeping current master"
     exit 1
 }
-ssh_run "$NEW_HOST" "curl -fsS --max-time 5 'http://127.0.0.1:$NEW_APP_PORT/api/health' >/dev/null" || {
+remote_bash "$NEW_HOST" "$NEW_APP_PORT" <<'REMOTE' || {
+curl -fsS --max-time 5 "http://127.0.0.1:$1/api/health" >/dev/null
+REMOTE
     error "$NEW_MASTER: stats health check failed; keeping current master"
     exit 1
 }
 
-mv "$tmp_inventory" "$INVENTORY"
+inv_stats_set_master "$INVENTORY" "$NEW_MASTER"
+rm -f "$tmp_inventory"
 trap - EXIT
 success "stats.master_node updated: $OLD_MASTER -> $NEW_MASTER"
 
 mesh_resolve_ssh "$INVENTORY" "$OLD_MASTER"
 info "$OLD_MASTER ($OLD_HOST): stopping old stats application"
-ssh_run "$OLD_HOST" "cd '$STATS_DEPLOY_DIR' && docker compose stop stats 2>/dev/null || true"
-ssh_run "$OLD_HOST" "cd '$WEB_DEPLOY_DIR' && docker compose stop web-app stats-web 2>/dev/null || true"
+remote_bash "$OLD_HOST" "$STATS_DEPLOY_DIR" "$WEB_DEPLOY_DIR" <<'REMOTE'
+cd "$1" && docker compose stop stats 2>/dev/null || true
+cd "$2" && docker compose stop web-app stats-web 2>/dev/null || true
+REMOTE
 success "$OLD_MASTER: old stats backend and web stopped; Postgres was left untouched"

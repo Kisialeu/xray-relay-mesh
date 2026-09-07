@@ -12,6 +12,7 @@ SSH_KEY_OVERRIDE="${SSH_KEY:-}"
 : "${RELAY_DEPLOY_DIR:=/opt/relay-node}"
 : "${XRAY_DEPLOY_DIR:=/opt/xray-node}"
 : "${MESH_WEBHOOK_URL:=}"   # optional ntfy.sh/Slack webhook, same convention as probe_subscriptions.sh
+MESH_SSH_ARGS=()
 
 # Exposed to scripts that source this file (they read $MESH_DIR for the
 # default inventory path). Export so the value is inherited and shellcheck
@@ -89,49 +90,29 @@ mesh_resolve_subs_ssh() {
     fi
 }
 
-# Installs Docker if missing. Shared by anything deploying a container stack
-# (Xray nodes, HAProxy relay, Caddy) - not just one of them.
+# Deployment preflight is deliberately read-only. Host package installation
+# belongs to the explicit bootstrap command.
 mesh_check_docker() {
     local host="$1"
-    ssh_run "$host" "docker info > /dev/null 2>&1" && return 0
-
-    warn "$host: docker not found - installing..."
-    ssh_run "$host" "
-        if grep -qi 'amazon linux' /etc/os-release 2>/dev/null || grep -qi 'amzn' /etc/os-release 2>/dev/null; then
-            if command -v dnf &>/dev/null; then
-                sudo dnf install -y docker && sudo systemctl enable docker && sudo systemctl start docker
-            else
-                sudo amazon-linux-extras enable docker && sudo yum install -y docker && sudo systemctl enable docker && sudo systemctl start docker
-            fi
-        else
-            curl -fsSL https://get.docker.com | sh && sudo systemctl enable docker && sudo systemctl start docker
-        fi
-    " || { error "$host: docker installation failed"; return 1; }
+    ssh_run "$host" "docker info >/dev/null 2>&1" \
+        || { error "$host: Docker is unavailable; run './mesh.sh bootstrap --node <name>'"; return 1; }
 }
 
 mesh_check_docker_compose() {
     local host="$1"
-    ssh_run "$host" "docker compose version > /dev/null 2>&1" && return 0
-
-    warn "$host: docker compose plugin not found - installing..."
-    ssh_run "$host" "
-        if command -v apt &>/dev/null; then
-            apt install -y docker-compose-plugin > /dev/null 2>&1
-        elif command -v dnf &>/dev/null; then
-            dnf install -y docker-compose-plugin > /dev/null 2>&1
-        elif command -v yum &>/dev/null; then
-            sudo yum install -y docker-compose-plugin > /dev/null 2>&1
-        else
-            echo 'unsupported package manager for docker-compose-plugin' >&2
-            exit 1
-        fi
-    " || { error "$host: docker compose plugin installation failed"; return 1; }
+    ssh_run "$host" "docker compose version >/dev/null 2>&1" \
+        || { error "$host: Docker Compose is unavailable; run './mesh.sh bootstrap --node <name>'"; return 1; }
 }
 
 mesh_container_running() {
     local host="$1" name="$2"
     local status
-    status=$(ssh_run "$host" "docker inspect -f '{{.State.Status}}' ${name} 2>/dev/null" || true)
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
+        || { error "invalid container name: $name"; return 1; }
+    status=$(remote_bash "$host" "$name" <<'REMOTE' || true
+docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null
+REMOTE
+    )
     [ "$status" = "running" ]
 }
 
@@ -146,29 +127,84 @@ mesh_check_local_deps() {
     fi
 }
 
-# Single source of truth for the connection options every ssh/scp/rsync call
-# uses (rsync needs this as a string for its own -e flag, so it's exposed as
-# a function rather than inlined only into ssh_run/scp_to below).
+# Single source of truth for SSH connection options. SSH and SCP consume an
+# array so identity paths containing whitespace remain one argument.
+mesh_build_ssh_args() {
+    MESH_SSH_ARGS=(
+        -i "$SSH_KEY"
+        -o ConnectTimeout=10
+        -o StrictHostKeyChecking=accept-new
+        -o BatchMode=yes
+    )
+}
+
+# rsync's -e interface requires one string. Each array element is Bash-quoted
+# before joining; callers must pass the result as one argument.
 mesh_ssh_opt() {
-    printf '%s' "-i $SSH_KEY -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+    local arg output="" quoted
+    mesh_build_ssh_args
+    for arg in "${MESH_SSH_ARGS[@]}"; do
+        printf -v quoted '%q' "$arg"
+        output+="${output:+ }$quoted"
+    done
+    printf '%s' "$output"
 }
 
 ssh_run() {
     local host="$1"; shift
-    # shellcheck disable=SC2046
-    ssh -n $(mesh_ssh_opt) "$SSH_USER@$host" "$@"
+    mesh_build_ssh_args
+    ssh -n "${MESH_SSH_ARGS[@]}" "$SSH_USER@$host" "$@"
 }
 
 scp_to() {
     local host="$1" local_path="$2" remote_path="$3"
-    # shellcheck disable=SC2046
-    scp $(mesh_ssh_opt) -q "$local_path" "$SSH_USER@${host}:${remote_path}"
+    mesh_build_ssh_args
+    scp "${MESH_SSH_ARGS[@]}" -q "$local_path" "$SSH_USER@${host}:${remote_path}"
 }
 
 scp_dir_to() {
     local host="$1" local_dir="$2" remote_path="$3"
-    # shellcheck disable=SC2046
-    scp -r $(mesh_ssh_opt) -q "$local_dir" "$SSH_USER@${host}:${remote_path}"
+    mesh_build_ssh_args
+    scp -r "${MESH_SSH_ARGS[@]}" -q "$local_dir" "$SSH_USER@${host}:${remote_path}"
+}
+
+_mesh_shell_quote() {
+    local value="$1"
+    value=${value//\'/\'\\\'\'}
+    printf "'%s'" "$value"
+}
+
+# Runs a script supplied on stdin and transports all remote values as Bash
+# positional parameters. Arguments are single-quote escaped before OpenSSH
+# passes the command through the remote login shell.
+remote_bash() {
+    local host="$1" command="bash -s --" arg
+    shift
+    for arg in "$@"; do
+        command+=" $(_mesh_shell_quote "$arg")"
+    done
+    mesh_build_ssh_args
+    ssh "${MESH_SSH_ARGS[@]}" "$SSH_USER@$host" "$command"
+}
+
+mesh_validate_deploy_dir() {
+    local path="$1"
+    [[ "$path" =~ ^/opt/[A-Za-z0-9._/-]+$ ]] || {
+        error "deploy directory must be an absolute path below /opt: $path"
+        return 1
+    }
+    case "$path" in
+        /opt|/opt/|*..*|*//*) error "unsafe deploy directory: $path"; return 1 ;;
+    esac
+}
+
+mesh_validate_file_mode() {
+    [[ "$1" =~ ^0?[0-7]{3}$ ]] || { error "invalid file mode: $1"; return 1; }
+}
+
+mesh_validate_owner() {
+    [[ "$1" =~ ^([A-Za-z_][A-Za-z0-9_.-]*|[0-9]+)$ ]] \
+        || { error "invalid owner or group: $1"; return 1; }
 }
 
 # Uploads local file $2 to $host, landing at privileged path $3 (parent dirs
@@ -177,26 +213,41 @@ scp_dir_to() {
 # (always writable) then `sudo mv`. Self-heals if $3 currently exists as
 # something other than a regular file - e.g. a directory Docker's `-v`
 # auto-created when an earlier unchecked upload silently failed to land.
-# Force-chmod 644 after the move: `mktemp` (the usual source of $local_path)
-# always creates plain files as mode 600, which `scp`/`mv` would otherwise
-# carry straight through - leaving the file unreadable by whatever (often
-# non-root) UID the container that needs it actually runs as.
+# Mode, owner, and group are mandatory so callers must classify secret files.
 # Checks every step; never leaves $3 half-written on failure.
 mesh_upload_file() {
-    local host="$1" local_path="$2" remote_path="$3"
+    local host="$1" local_path="$2" remote_path="$3" mode="$4" owner="$5" group="$6"
     local tmp_path
     tmp_path="/tmp/mesh_upload_$$_$(basename "$remote_path")"
+
+    [ -f "$local_path" ] || { error "upload source is not a file: $local_path"; return 1; }
+    mesh_validate_file_mode "$mode" || return 1
+    mesh_validate_owner "$owner" || return 1
+    mesh_validate_owner "$group" || return 1
 
     scp_to "$host" "$local_path" "$tmp_path" \
         || { error "$host: failed to upload $(basename "$remote_path") to /tmp"; return 1; }
 
-    ssh_run "$host" "
-        set -e
-        sudo mkdir -p \"\$(dirname '$remote_path')\"
-        if [ -e '$remote_path' ] && [ ! -f '$remote_path' ]; then sudo rm -rf '$remote_path'; fi
-        sudo mv '$tmp_path' '$remote_path'
-        sudo chmod 644 '$remote_path'
-    " || { error "$host: failed to install $remote_path"; ssh_run "$host" "rm -f '$tmp_path'" >/dev/null 2>&1; return 1; }
+    remote_bash "$host" "$tmp_path" "$remote_path" "$mode" "$owner" "$group" <<'REMOTE' || {
+set -euo pipefail
+tmp_path=$1
+remote_path=$2
+mode=$3
+owner=$4
+group=$5
+sudo mkdir -p "$(dirname "$remote_path")"
+if [ -e "$remote_path" ] && [ ! -f "$remote_path" ]; then
+    sudo rm -rf -- "$remote_path"
+fi
+sudo install -m "$mode" -o "$owner" -g "$group" "$tmp_path" "$remote_path"
+rm -f -- "$tmp_path"
+REMOTE
+        error "$host: failed to install $remote_path"
+        remote_bash "$host" "$tmp_path" <<'REMOTE' >/dev/null 2>&1 || true
+rm -f -- "$1"
+REMOTE
+        return 1
+    }
 }
 
 # Uploads local directory $2's contents to $host, merged into privileged
@@ -208,14 +259,24 @@ mesh_upload_dir_merge() {
     local tmp_dir
     tmp_dir="/tmp/mesh_upload_$$_$(basename "$dest_dir")"
 
-    ssh_run "$host" "rm -rf '$tmp_dir'" >/dev/null 2>&1 || true
+    remote_bash "$host" "$tmp_dir" <<'REMOTE' >/dev/null 2>&1 || true
+rm -rf -- "$1"
+REMOTE
     scp_dir_to "$host" "$local_dir" "$tmp_dir" \
         || { error "$host: failed to upload staged files to /tmp"; return 1; }
 
-    ssh_run "$host" "
-        set -e
-        sudo mkdir -p '$dest_dir'
-        sudo cp -a '$tmp_dir'/. '$dest_dir'/
-        rm -rf '$tmp_dir'
-    " || { error "$host: failed to merge staged files into $dest_dir"; ssh_run "$host" "rm -rf '$tmp_dir'" >/dev/null 2>&1; return 1; }
+    remote_bash "$host" "$tmp_dir" "$dest_dir" <<'REMOTE' || {
+set -euo pipefail
+tmp_dir=$1
+dest_dir=$2
+sudo mkdir -p "$dest_dir"
+sudo cp -a "$tmp_dir"/. "$dest_dir"/
+rm -rf -- "$tmp_dir"
+REMOTE
+        error "$host: failed to merge staged files into $dest_dir"
+        remote_bash "$host" "$tmp_dir" <<'REMOTE' >/dev/null 2>&1 || true
+rm -rf -- "$1"
+REMOTE
+        return 1
+    }
 }

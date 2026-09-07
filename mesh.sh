@@ -14,6 +14,7 @@
 #   -- xray / hysteria2 --
 #   relay-mesh/mesh.sh deploy-node <name>        deploy Xray to one node (and Hysteria2, if enabled)
 #   relay-mesh/mesh.sh deploy-nodes              deploy Xray to ALL nodes (and Hysteria2, if enabled)
+#   relay-mesh/mesh.sh bootstrap-node <name>     install host deployment prerequisites
 #
 #   -- relay mesh --
 #   relay-mesh/mesh.sh deploy-relay <name>       deploy relay mesh to one node
@@ -378,6 +379,7 @@ case "$CMD" in
     # -- xray / hysteria2 --
     deploy-node)      "$SCRIPT_DIR/deploy/deploy_nodes.sh" "${1:?node name required}" "$INVENTORY" ;;
     deploy-nodes)     "$SCRIPT_DIR/deploy/deploy_nodes.sh" all "$INVENTORY" ;;
+    bootstrap-node)   "$SCRIPT_DIR/bootstrap/bootstrap_node.sh" "${1:?node name required}" "$INVENTORY" ;;
 
     # -- relay mesh --
     deploy-stack-all) run_deploy_stack_all ;;

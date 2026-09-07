@@ -2,6 +2,10 @@
 # jq-based accessors over an inventory.json file (see relay-mesh/inventory.json).
 # Sourced by other relay-mesh/*.sh scripts - not meant to be run directly.
 
+INVENTORY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lock.sh
+source "$INVENTORY_LIB_DIR/lock.sh"
+
 # Validates structure, unique ids/names, whitespace-free names/hosts (both
 # get space-delimited-parsed downstream by render.sh/subs_render.sh), that
 # every derived relay port (relay_port_base + id) is in range, and that no
@@ -15,6 +19,47 @@ inv_validate() {
 
     jq -e 'type == "object" and has("nodes") and (.nodes | type == "array") and (.nodes | length > 0)' \
         "$file" >/dev/null 2>&1 || { error "inventory malformed or has no nodes: $file"; return 1; }
+
+    jq -e '
+        ((.environment // "development") | IN("development", "staging", "production")) and
+        all(.nodes[];
+            (.id | type == "number" and floor == . and . >= 0) and
+            (.name | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+            (.host | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:-]*$")) and
+            (.direct_port | type == "number" and floor == . and . >= 1 and . <= 65535) and
+            (.ssh_user | type == "string" and test("^[A-Za-z_][A-Za-z0-9._-]*$")) and
+            (.ssh_key | type == "string" and length > 0 and (test("[\\x00-\\x1F]") | not))
+        ) and
+        all((.images // {}) | to_entries[] | select(.key | startswith("_") | not);
+            (.value | type == "string" and test("^[A-Za-z0-9._/@:-]+$") and length > 0)
+        ) and
+        all(.xray.users[]?;
+            (.uuid | type == "string" and test("^[0-9a-fA-F-]{36}$")) and
+            (.email | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._@+-]*$") and (contains("..") | not)) and
+            all(.hidden_nodes[]?; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+        ) and
+        ((.xray.reality.private_key // "") | test("^[A-Za-z0-9_-]*$")) and
+        ((.xray.reality.public_key // "") | test("^[A-Za-z0-9_-]*$")) and
+        ((.xray.reality.short_id // "891f7782a08e5aae") | test("^[0-9a-fA-F]{1,16}$")) and
+        ((.xray.reality.sni // "dl.google.com") | test("^[A-Za-z0-9][A-Za-z0-9.-]*$")) and
+        ((.stats.token // "") | test("^[A-Za-z0-9._~:-]*$")) and
+        ((.stats.postgres_password // "") | test("^[A-Za-z0-9._~:-]*$")) and
+        ((.subs.sub_secret // "") | test("^[A-Za-z0-9._~:-]*$")) and
+        ((.subs.origin_verify_secret // "") | test("^[A-Za-z0-9._~:-]*$")) and
+        ((.subs.domain // "") | test("^[A-Za-z0-9][A-Za-z0-9.-]*$")) and
+        ((.subs.zone_domain // "") | test("^[A-Za-z0-9][A-Za-z0-9.-]*$")) and
+        ((.subs.caddy_host // "") | test("^[A-Za-z0-9][A-Za-z0-9._:-]*$")) and
+        ((.subs.ssh_user // "root") | test("^[A-Za-z_][A-Za-z0-9._-]*$")) and
+        ((.subs.ssh_key // "~/.ssh/my_custom_key") | type == "string" and length > 0 and (test("[\\x00-\\x1F]") | not)) and
+        ((.stats.ssh_user // "stats-poller") | test("^[A-Za-z_][A-Za-z0-9._-]*$")) and
+        ((.subs.caddy_deploy_dir // "/opt/caddy-subs") |
+            test("^/opt/[A-Za-z0-9._/-]+$") and
+            (contains("..") | not) and
+            (contains("//") | not))
+    ' "$file" >/dev/null 2>&1 || {
+        error "inventory contains invalid environment, node identity, port, SSH value, or deploy path"
+        return 1
+    }
 
     local dup_ids dup_names
     dup_ids=$(jq -r '[.nodes[].id] | group_by(.) | map(select(length > 1)) | flatten | unique | .[]' "$file")
@@ -71,6 +116,25 @@ inv_validate() {
     if [ -n "$missing_ssh_key" ]; then
         error "node(s) missing required ssh_key field in inventory: $missing_ssh_key"
         return 1
+    fi
+
+    if [ "$(jq -r '.environment // "development"' "$file")" = "production" ]; then
+        local unpinned_images
+        unpinned_images=$(jq -r '
+            (.images // {})
+            | to_entries[]
+            | select(.key | startswith("_") | not)
+            | select(
+                (.value | type != "string") or
+                (.value | test(":latest$")) or
+                ((.value | test("(@sha256:[0-9a-fA-F]{64}|:[A-Za-z0-9_][A-Za-z0-9_.-]*)$")) | not)
+            )
+            | .key
+        ' "$file")
+        if [ -n "$unpinned_images" ]; then
+            error "production inventory contains unpinned image(s): $unpinned_images"
+            return 1
+        fi
     fi
 
     if [ "$(inv_stats_expose_haproxy "$file")" = "true" ]; then
@@ -214,6 +278,11 @@ inv_stats_rate_limit_period() { jq -r '.stats.rate_limit_period // "60s"' "$1"; 
 inv_stats_rate_limit_requests() { jq -r '.stats.rate_limit_requests // 60' "$1"; }
 inv_stats_allowed_sources() { jq -r '.stats.allowed_sources // [] | join(" ")' "$1"; }
 
+inv_stats_set_master() {
+    local file="$1" name="$2"
+    inv_atomic_update "$file" --arg master "$name" '.stats.master_node = $master'
+}
+
 # relay port used mesh-wide to reach $name = relay_port_base + $name's id.
 inv_relay_port() {
     local file="$1" name="$2"
@@ -254,23 +323,52 @@ inv_xray_has_reality_keys() {
     [ -n "$priv" ] && [ -n "$pub" ]
 }
 
+inv_atomic_update() {
+    local file="$1"
+    shift
+    local lock_dir="${file}.lock" backup="${file}.backup" tmp rc=0
+
+    mesh_lock_acquire "$lock_dir" "${INVENTORY_LOCK_TIMEOUT:-10}" || return 1
+    tmp="$(mktemp "${file}.tmp.XXXXXX")" || {
+        mesh_lock_release "$lock_dir"
+        return 1
+    }
+
+    cp -p "$file" "$backup" || rc=1
+    if [ "$rc" -eq 0 ]; then
+        jq "$@" "$file" > "$tmp" || rc=1
+    fi
+    if [ "$rc" -eq 0 ]; then
+        inv_validate "$tmp" || rc=1
+    fi
+    if [ "$rc" -eq 0 ]; then
+        local source_mode
+        source_mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")
+        chmod "$source_mode" "$tmp"
+        mv "$tmp" "$file" || rc=1
+    fi
+    if [ "$rc" -eq 0 ] && ! inv_validate "$file"; then
+        cp -p "$backup" "$file"
+        rc=1
+    fi
+
+    rm -f "$tmp"
+    mesh_lock_release "$lock_dir"
+    return "$rc"
+}
+
 # Persists generated Reality keys back into the inventory file in place
 # (atomic write via temp file + mv) so every node stays in sync going forward.
 inv_xray_set_reality_keys() {
     local file="$1" priv="$2" pub="$3"
-    local tmp
-    tmp="$(mktemp)"
-    jq --arg priv "$priv" --arg pub "$pub" \
-        '.xray.reality.private_key = $priv | .xray.reality.public_key = $pub' \
-        "$file" > "$tmp" && mv "$tmp" "$file"
+    inv_atomic_update "$file" --arg priv "$priv" --arg pub "$pub" \
+        '.xray.reality.private_key = $priv | .xray.reality.public_key = $pub'
 }
 
 # Removes node $2 from the inventory in place (used by remove_node.sh).
 inv_remove_node() {
     local file="$1" name="$2"
-    local tmp
-    tmp="$(mktemp)"
-    jq --arg n "$name" '.nodes |= map(select(.name != $n))' "$file" > "$tmp" && mv "$tmp" "$file"
+    inv_atomic_update "$file" --arg n "$name" '.nodes |= map(select(.name != $n))'
 }
 
 # ---- subs / CDN (see inventory.json "subs" block) ----
@@ -335,11 +433,8 @@ inv_node_hysteria_stats_secret() { inv_node_field "$1" "$2" hysteria_stats_secre
 
 inv_node_set_hysteria_stats_secret() {
     local file="$1" name="$2" secret="$3"
-    local tmp
-    tmp="$(mktemp)"
-    jq --arg n "$name" --arg s "$secret" \
-        '.nodes |= map(if .name == $n then .hysteria_stats_secret = $s else . end)' \
-        "$file" > "$tmp" && mv "$tmp" "$file"
+    inv_atomic_update "$file" --arg n "$name" --arg s "$secret" \
+        '.nodes |= map(if .name == $n then .hysteria_stats_secret = $s else . end)'
 }
 
 # Generic per-node protocol membership check ("true"/"false" string, same

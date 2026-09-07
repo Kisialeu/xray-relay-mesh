@@ -27,18 +27,18 @@ sync_subs_to_caddy() {
 
 reload_caddy() {
     local sub_server="$1" caddy_deploy_dir="$2"
-    local ssh_opt
-    ssh_opt="$(mesh_ssh_opt)"
 
-    if ssh $ssh_opt "${SSH_USER}@${sub_server}" \
-        "docker compose -f ${caddy_deploy_dir}/compose.yml ps --quiet --status running caddy-subs 2>/dev/null | grep -q ." 2>/dev/null
+    if remote_bash "$sub_server" "$caddy_deploy_dir" <<'REMOTE' 2>/dev/null
+docker compose -f "$1/compose.yml" ps --quiet --status running caddy-subs 2>/dev/null | grep -q .
+REMOTE
     then
         # `caddy reload` needs the admin API, which caddy/Caddyfile disables
         # (`admin off`) - it always fails here, so go straight to a restart
         # instead of paying for a doomed attempt first.
         info "Restarting Caddy to pick up the synced files..."
-        ssh $ssh_opt "${SSH_USER}@${sub_server}" \
-            "docker compose -f ${caddy_deploy_dir}/compose.yml restart caddy-subs"
+        remote_bash "$sub_server" "$caddy_deploy_dir" <<'REMOTE'
+docker compose -f "$1/compose.yml" restart caddy-subs
+REMOTE
         success "Caddy restarted"
     else
         warn "Caddy not running on ${sub_server} - this script only syncs subscription content. Run relay-mesh/caddy/deploy_caddy.sh first to stand it up."

@@ -28,5 +28,5 @@ info "Opening SSH tunnel to stats master ${MASTER_NODE} (${HOST})"
 info "Open: ${url}"
 info "Press Ctrl-C to close the tunnel"
 
-# shellcheck disable=SC2046
-exec ssh $(mesh_ssh_opt) -N -L "127.0.0.1:${LOCAL_PORT}:127.0.0.1:${REMOTE_PORT}" "$SSH_USER@$HOST"
+mesh_build_ssh_args
+exec ssh "${MESH_SSH_ARGS[@]}" -N -L "127.0.0.1:${LOCAL_PORT}:127.0.0.1:${REMOTE_PORT}" "$SSH_USER@$HOST"

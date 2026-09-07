@@ -118,11 +118,13 @@ subscriptions/
 
 AGENTS.md
 PLAN.md
-Modelfile*
+Modelfile.*
+
 *agent*.sh
 
 # inventory.json
 inventory.json
+*.json.backup
 
 # env and subs files
 .env

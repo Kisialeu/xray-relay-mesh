@@ -10,6 +10,7 @@ source "$SCRIPT_DIR/../lib/inventory.sh"
 
 INVENTORY="${1:-$MESH_DIR/inventory.json}"
 STATS_DEPLOY_DIR="${STATS_DEPLOY_DIR:-/opt/xray-stats}"
+mesh_validate_deploy_dir "$STATS_DEPLOY_DIR" || exit 1
 
 mesh_check_local_deps
 inv_validate "$INVENTORY" || exit 1
@@ -58,18 +59,21 @@ bootstrap_ssh_polling() {
     local pub key_line wrapper wrapper_b64 key_b64
 
     info "$MASTER_NODE ($master_host): preparing SSH polling key"
-    ssh_run "$master_host" "
-        set -e
-        sudo install -d -m 755 '$key_dir'
-        sudo rm -f '$next_key_path' '$next_pub_path'
-        sudo ssh-keygen -q -t ed25519 -N '' -f '$next_key_path'
-        sudo chmod 600 '$next_key_path'
-        sudo chmod 644 '$next_pub_path'
-        sudo touch '$known_hosts'
-        sudo chmod 644 '$known_hosts'
-        sudo chown -R 10001:10001 '$key_dir'
-    "
-    pub="$(ssh_run "$master_host" "sudo cat '$next_pub_path'")"
+    remote_bash "$master_host" "$key_dir" "$next_key_path" "$next_pub_path" "$known_hosts" <<'REMOTE'
+set -euo pipefail
+sudo install -d -m 0755 "$1"
+sudo rm -f -- "$2" "$3"
+sudo ssh-keygen -q -t ed25519 -N '' -f "$2"
+sudo chmod 0600 "$2"
+sudo chmod 0644 "$3"
+sudo touch "$4"
+sudo chmod 0644 "$4"
+sudo chown -R 10001:10001 "$1"
+REMOTE
+    pub="$(remote_bash "$master_host" "$next_pub_path" <<'REMOTE'
+sudo cat "$1"
+REMOTE
+    )"
     [ -n "$pub" ] || { error "failed to read generated stats SSH public key"; return 1; }
 
     # Explicit allowlist by design (never a dynamic/open pass-through over
@@ -94,52 +98,61 @@ esac
         [ "$name" = "$MASTER_NODE" ] && continue
         mesh_resolve_ssh "$INVENTORY" "$name"
         info "$name ($host): installing restricted stats-poller key"
-        ssh_run "$host" "
-            set -e
-            if ! id '$SSH_USER_STATS' >/dev/null 2>&1; then
-                sudo useradd --system --create-home --shell /bin/sh '$SSH_USER_STATS'
-            fi
-            sudo usermod --shell /bin/sh '$SSH_USER_STATS'
-            command -v curl >/dev/null 2>&1
-            sudo install -d -m 700 -o '$SSH_USER_STATS' -g '$SSH_USER_STATS' \"\$(getent passwd '$SSH_USER_STATS' | cut -d: -f6)/.ssh\"
-            sudo install -m 755 /dev/null /usr/local/sbin/xray-stats-poller
-            printf '%s' '$wrapper_b64' | base64 -d | sudo tee /usr/local/sbin/xray-stats-poller >/dev/null
-            sudo chmod 755 /usr/local/sbin/xray-stats-poller
-            auth=\"\$(getent passwd '$SSH_USER_STATS' | cut -d: -f6)/.ssh/authorized_keys\"
-            sudo touch \"\$auth\"
-            sudo chmod 600 \"\$auth\"
-            if ! printf '%s' '$key_b64' | base64 -d | sudo grep -Fqx -f - \"\$auth\"; then
-                printf '%s' '$key_b64' | base64 -d | sudo tee -a \"\$auth\" >/dev/null
-            fi
-            sudo chown -R '$SSH_USER_STATS':'$SSH_USER_STATS' \"\$(dirname \"\$auth\")\"
-        "
+        remote_bash "$host" "$SSH_USER_STATS" "$wrapper_b64" "$key_b64" <<'REMOTE'
+set -euo pipefail
+stats_user=$1
+wrapper_b64=$2
+key_b64=$3
+if ! id "$stats_user" >/dev/null 2>&1; then
+    sudo useradd --system --create-home --shell /bin/sh "$stats_user"
+fi
+sudo usermod --shell /bin/sh "$stats_user"
+command -v curl >/dev/null 2>&1
+home_dir=$(getent passwd "$stats_user" | cut -d: -f6)
+sudo install -d -m 0700 -o "$stats_user" -g "$stats_user" "$home_dir/.ssh"
+printf '%s' "$wrapper_b64" | base64 -d | sudo tee /usr/local/sbin/xray-stats-poller >/dev/null
+sudo chmod 0755 /usr/local/sbin/xray-stats-poller
+auth="$home_dir/.ssh/authorized_keys"
+sudo touch "$auth"
+sudo chmod 0600 "$auth"
+if ! printf '%s' "$key_b64" | base64 -d | sudo grep -Fqx -f - "$auth"; then
+    printf '%s' "$key_b64" | base64 -d | sudo tee -a "$auth" >/dev/null
+fi
+sudo chown -R "$stats_user:$stats_user" "$home_dir/.ssh"
+REMOTE
         if ! ssh-keygen -F "$host" -f "$HOME/.ssh/known_hosts" >/dev/null 2>&1; then
             host_keys="$(ssh-keyscan -T 5 -p "$SSH_PORT_STATS" -H "$host" 2>/dev/null || true)"
         else
             host_keys="$(ssh-keygen -F "$host" -f "$HOME/.ssh/known_hosts" 2>/dev/null | awk 'NF == 3 {print $1, $2, $3}')"
         fi
         if [ -z "$host_keys" ]; then
-            host_keys="$(ssh_run "$master_host" "ssh-keyscan -T 5 -p '$SSH_PORT_STATS' -H '$host' 2>/dev/null" || true)"
+            mesh_resolve_ssh "$INVENTORY" "$MASTER_NODE"
+            host_keys="$(remote_bash "$master_host" "$SSH_PORT_STATS" "$host" <<'REMOTE' || true
+ssh-keyscan -T 5 -p "$1" -H "$2" 2>/dev/null
+REMOTE
+            )"
         fi
         [ -n "$host_keys" ] || {
             error "$name ($host): unable to collect SSH host key from deployment host or master"
             return 1
         }
         host_keys_b64="$(printf '%s\n' "$host_keys" | base64 | tr -d '\n')"
-        ssh_run "$master_host" "
-            if ! sudo ssh-keygen -F '$host' -f '$known_hosts' >/dev/null 2>&1; then
-                printf '%s' '$host_keys_b64' | base64 -d | sudo tee -a '$known_hosts' >/dev/null
-            fi
-        "
+        mesh_resolve_ssh "$INVENTORY" "$MASTER_NODE"
+        remote_bash "$master_host" "$host" "$known_hosts" "$host_keys_b64" <<'REMOTE'
+if ! sudo ssh-keygen -F "$1" -f "$2" >/dev/null 2>&1; then
+    printf '%s' "$3" | base64 -d | sudo tee -a "$2" >/dev/null
+fi
+REMOTE
     done < <(jq -r '.nodes[] | [.name, .host] | @tsv' "$INVENTORY")
-    ssh_run "$master_host" "
-        set -e
-        sudo mv '$next_key_path' '$key_path'
-        sudo mv '$next_pub_path' '$pub_path'
-        sudo chmod 600 '$key_path'
-        sudo chmod 644 '$pub_path'
-        sudo chown 10001:10001 '$key_path' '$pub_path'
-    "
+    mesh_resolve_ssh "$INVENTORY" "$MASTER_NODE"
+    remote_bash "$master_host" "$next_key_path" "$key_path" "$next_pub_path" "$pub_path" <<'REMOTE'
+set -euo pipefail
+sudo mv "$1" "$2"
+sudo mv "$3" "$4"
+sudo chmod 0600 "$2"
+sudo chmod 0644 "$4"
+sudo chown 10001:10001 "$2" "$4"
+REMOTE
     NEW_STATS_PUB="$pub"
 }
 
@@ -150,11 +163,12 @@ cleanup_old_stats_keys() {
     while read -r name host; do
         [ "$name" = "$MASTER_NODE" ] && continue
         mesh_resolve_ssh "$INVENTORY" "$name"
-        ssh_run "$host" "
-            auth=\"\$(getent passwd '$SSH_USER_STATS' | cut -d: -f6)/.ssh/authorized_keys\"
-            sudo sed -i '/xray-stats-poller/d' \"\$auth\"
-            printf '%s' '$key_b64' | base64 -d | sudo tee -a \"\$auth\" >/dev/null
-        "
+        remote_bash "$host" "$SSH_USER_STATS" "$key_b64" <<'REMOTE'
+set -euo pipefail
+auth="$(getent passwd "$1" | cut -d: -f6)/.ssh/authorized_keys"
+sudo sed -i '/xray-stats-poller/d' "$auth"
+printf '%s' "$2" | base64 -d | sudo tee -a "$auth" >/dev/null
+REMOTE
     done < <(jq -r '.nodes[] | [.name, .host] | @tsv' "$INVENTORY")
 }
 
@@ -206,7 +220,13 @@ info "$MASTER_NODE ($HOST): deploying central stats service"
 mesh_check_docker "$HOST"
 mesh_check_docker_compose "$HOST"
 mesh_upload_dir_merge "$HOST" "$stage" "$STATS_DEPLOY_DIR"
-ssh_run "$HOST" "sudo install -d -m 700 -o 70 -g 70 '$STATS_DEPLOY_DIR/postgres'"
-ssh_run "$HOST" "sudo chmod 600 '$STATS_DEPLOY_DIR/.env' && cd '$STATS_DEPLOY_DIR' && docker compose up -d --build --wait --wait-timeout 120"
+mesh_resolve_ssh "$INVENTORY" "$MASTER_NODE"
+remote_bash "$HOST" "$STATS_DEPLOY_DIR" <<'REMOTE'
+set -euo pipefail
+sudo install -d -m 0700 -o 70 -g 70 "$1/postgres"
+sudo chmod 0600 "$1/.env"
+cd "$1"
+docker compose up -d --build --wait --wait-timeout 120
+REMOTE
 cleanup_old_stats_keys "$HOST" "$NEW_STATS_PUB"
 success "$HOST: central stats service deployed"

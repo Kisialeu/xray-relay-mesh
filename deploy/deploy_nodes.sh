@@ -30,12 +30,15 @@ source "$SCRIPT_DIR/lib/xray_render.sh"
 source "$SCRIPT_DIR/lib/hysteria_render.sh"
 # shellcheck source=lib/xray_ctl.sh
 source "$SCRIPT_DIR/lib/xray_ctl.sh"
+# shellcheck source=../lib/stage.sh
+source "$SCRIPT_DIR/../lib/stage.sh"
 
 usage() { echo "Usage: $0 <all|node_name> [inventory.json]" >&2; exit 1; }
 [ $# -ge 1 ] || usage
 
 TARGET="$1"
 INVENTORY="${2:-$MESH_DIR/inventory.json}"
+mesh_validate_deploy_dir "$XRAY_DEPLOY_DIR" || exit 1
 
 # Reality keys/users are identical on every node (see inventory.json "xray"
 # block). Generate once locally and persist back into the inventory if
@@ -108,13 +111,17 @@ deploy_one() {
         mkdir -p "$stage/hysteria"
         render_hysteria_config "$INVENTORY" "$name" > "$stage/hysteria/config.yaml"
     fi
+    chmod 0600 "$stage/.env" "$stage/config/config.json"
+    chmod 0644 "$stage/adguard/conf/AdGuardHome.yaml" "$stage/docker-compose.yml" "$stage/stats.py"
+    chmod 0755 "$stage/entrypoint.sh"
+    [ "$hysteria_enabled" = "true" ] && chmod 0600 "$stage/hysteria/config.yaml"
 
     info "$name ($host): preparing host"
     xray_check_docker "$host" || rc=1
     xray_check_docker_compose "$host" || rc=1
-    xray_check_remote_deps "$host"
-    xray_check_bbr "$host"
-    [ "$hysteria_enabled" = "true" ] && xray_check_udp_buffers "$host" "$XRAY_DEPLOY_DIR"
+    xray_check_remote_deps "$host" || rc=1
+    xray_check_bbr "$host" || rc=1
+    [ "$hysteria_enabled" != "true" ] || xray_check_udp_buffers "$host" "$XRAY_DEPLOY_DIR" || rc=1
 
     if [ "$rc" -eq 0 ]; then
         xray_apply "$host" "$XRAY_DEPLOY_DIR" "$stage" "$hysteria_enabled" || rc=1

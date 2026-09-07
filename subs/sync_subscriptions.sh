@@ -30,6 +30,7 @@ inv_validate "$INVENTORY" || exit 1
 CADDY_HOST="$(inv_subs_caddy_host "$INVENTORY")"
 [ -n "$CADDY_HOST" ] || { error "subs.caddy_host not set in $INVENTORY"; exit 1; }
 CADDY_DEPLOY_DIR="$(inv_subs_caddy_deploy_dir "$INVENTORY")"
+mesh_validate_deploy_dir "$CADDY_DEPLOY_DIR" || exit 1
 mesh_resolve_subs_ssh "$INVENTORY"
 
 if [ ! -d "$SUB_DIR" ] || [ -z "$(ls -A "$SUB_DIR" 2>/dev/null)" ]; then

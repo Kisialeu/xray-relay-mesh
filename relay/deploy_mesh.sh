@@ -31,6 +31,7 @@ usage() { echo "Usage: $0 <all|node_name> [inventory.json]" >&2; exit 1; }
 TARGET="$1"
 INVENTORY="${2:-$MESH_DIR/inventory.json}"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.relay.yml"
+mesh_validate_deploy_dir "$RELAY_DEPLOY_DIR" || exit 1
 
 deploy_one() {
     local name="$1" host tmp_cfg rc=0

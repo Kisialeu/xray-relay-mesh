@@ -14,15 +14,8 @@ xray_check_docker_compose() { mesh_check_docker_compose "$1"; }
 
 xray_check_remote_deps() {
     local host="$1"
-    ssh_run "$host" "
-        if command -v apt &>/dev/null; then
-            sudo apt install -y zstd cron > /dev/null 2>&1
-        elif command -v dnf &>/dev/null; then
-            sudo dnf install -y zstd cronie > /dev/null 2>&1 && sudo systemctl enable --now crond > /dev/null 2>&1 || true
-        elif command -v yum &>/dev/null; then
-            sudo yum install -y zstd cronie > /dev/null 2>&1 && sudo systemctl enable --now crond > /dev/null 2>&1 || true
-        fi
-    " || warn "$host: failed to install zstd/cron (log rotation/restart cron may not work)"
+    ssh_run "$host" "command -v zstd >/dev/null && (command -v cron >/dev/null || command -v crond >/dev/null)" \
+        || { error "$host: zstd or cron is unavailable; run './mesh.sh bootstrap --node <name>'"; return 1; }
 }
 
 xray_check_bbr() {
@@ -30,60 +23,19 @@ xray_check_bbr() {
     current=$(ssh_run "$host" "sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null")
     [ "$current" = "bbr" ] && return 0
 
-    ssh_run "$host" "
-        sudo modprobe tcp_bbr 2>/dev/null || true
-        sudo mkdir -p /etc/modules-load.d /etc/sysctl.d
-        grep -qxF 'tcp_bbr' /etc/modules-load.d/bbr.conf 2>/dev/null \
-            || echo 'tcp_bbr' | sudo tee -a /etc/modules-load.d/bbr.conf > /dev/null
-        sudo sysctl -w net.ipv4.tcp_congestion_control=bbr > /dev/null
-        grep -qxF 'net.ipv4.tcp_congestion_control=bbr' /etc/sysctl.d/99-bbr.conf 2>/dev/null \
-            || echo 'net.ipv4.tcp_congestion_control=bbr' | sudo tee -a /etc/sysctl.d/99-bbr.conf > /dev/null
-    " >/dev/null 2>&1
-
-    current=$(ssh_run "$host" "sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null")
-    [ "$current" = "bbr" ] || warn "$host: BBR could not be enabled (kernel may not support it)"
+    warn "$host: BBR is not active; run './mesh.sh bootstrap --node <name>'"
+    return 1
 }
 
-# Hysteria2 runs over QUIC/UDP, which needs a much bigger UDP socket buffer
-# than the Linux default (~208KB) to avoid packet loss under real throughput -
-# see https://v2.hysteria.network/docs/advanced/Performance/ (official
-# recommendation: 16MB). Only called for nodes with "hysteria" in their
-# protocols. A Docker container's network namespace snapshots net.core.*
-# at creation time, so an already-running hysteria container won't see a
-# freshly-raised host limit until its namespace is recreated - hence the
-# force-recreate below, but ONLY if hysteria/config.yaml already exists AS A
-# FILE (i.e. this node has run with hysteria enabled before). This check
-# runs in the host-prep phase, before deploy_nodes.sh uploads that file - on
-# a node enabling hysteria for the very first time, recreating here would
-# make Docker Compose auto-create the missing bind-mount source as an empty
-# DIRECTORY, permanently blocking every later attempt to write the real file
-# there. Skipping the recreate on first-enable is correct anyway: the normal
-# apply flow right after this will create that container fresh (since the
-# rendered files changed), already picking up the raised sysctl.
+# Hysteria2 requires 16 MiB UDP socket buffers. Deployment checks the setting
+# but does not mutate host sysctls; bootstrap owns that state change.
 xray_check_udp_buffers() {
-    local host="$1" deploy_dir="$2" current
+    local host="$1" current
     current=$(ssh_run "$host" "sysctl -n net.core.rmem_max 2>/dev/null")
     [ "${current:-0}" -ge 16777216 ] 2>/dev/null && return 0
 
-    ssh_run "$host" "
-        sudo mkdir -p /etc/sysctl.d
-        sudo sysctl -w net.core.rmem_max=16777216 > /dev/null
-        sudo sysctl -w net.core.wmem_max=16777216 > /dev/null
-        grep -qxF 'net.core.rmem_max=16777216' /etc/sysctl.d/99-hysteria-udp.conf 2>/dev/null \
-            || echo 'net.core.rmem_max=16777216' | sudo tee -a /etc/sysctl.d/99-hysteria-udp.conf > /dev/null
-        grep -qxF 'net.core.wmem_max=16777216' /etc/sysctl.d/99-hysteria-udp.conf 2>/dev/null \
-            || echo 'net.core.wmem_max=16777216' | sudo tee -a /etc/sysctl.d/99-hysteria-udp.conf > /dev/null
-    " >/dev/null 2>&1
-
-    current=$(ssh_run "$host" "sysctl -n net.core.rmem_max 2>/dev/null")
-    if [ "${current:-0}" -ge 16777216 ] 2>/dev/null; then
-        if ssh_run "$host" "test -f ${deploy_dir}/hysteria/config.yaml" >/dev/null 2>&1; then
-            ssh_run "$host" "cd ${deploy_dir} && docker compose --profile hysteria up -d --force-recreate hysteria" >/dev/null 2>&1 \
-                || warn "$host: raised UDP buffers but failed to recreate the hysteria container - restart it manually so it picks up the new limit"
-        fi
-    else
-        warn "$host: could not raise net.core.rmem_max/wmem_max for Hysteria2 UDP throughput"
-    fi
+    error "$host: UDP buffers are below 16 MiB; run './mesh.sh bootstrap --node <name>'"
+    return 1
 }
 
 xray_container_running() { mesh_container_running "$1" "$2"; }
@@ -105,7 +57,12 @@ xray_stack_running() {
 
 xray_start() {
     local host="$1" deploy_dir="$2" hysteria_enabled="${3:-false}"
-    ssh_run "$host" "cd ${deploy_dir} && docker compose pull && docker compose down --remove-orphans && docker compose up -d" || return 1
+    remote_bash "$host" "$deploy_dir" <<'REMOTE' || return 1
+set -euo pipefail
+cd "$1"
+docker compose pull
+docker compose up -d --remove-orphans
+REMOTE
     sleep 3
     xray_stack_running "$host" "$hysteria_enabled"
 }
@@ -120,19 +77,31 @@ xray_ensure_running() {
     fi
 
     info "$host: xray stack unchanged but a service is not running - starting it"
-    ssh_run "$host" "cd ${deploy_dir} && docker compose up -d --remove-orphans" || return 1
+    remote_bash "$host" "$deploy_dir" <<'REMOTE' || return 1
+set -euo pipefail
+cd "$1"
+docker compose up -d --remove-orphans
+REMOTE
     sleep 3
     xray_stack_running "$host" "$hysteria_enabled"
 }
 
 xray_restore_backup() {
     local host="$1" deploy_dir="$2" backup="$3"
-    if ! ssh_run "$host" "test -f ${backup}"; then
+    if ! remote_bash "$host" "$backup" <<'REMOTE'; then
+test -f "$1"
+REMOTE
         error "$host: no backup tarball to restore - manual intervention required"
         return 1
     fi
-    ssh_run "$host" "sudo rm -rf ${deploy_dir} && sudo tar xzf ${backup} -C \$(dirname ${deploy_dir})" \
+    remote_bash "$host" "$deploy_dir" "$backup" <<'REMOTE' \
         || { error "$host: failed to extract backup tarball"; return 1; }
+set -euo pipefail
+deploy_dir=$1
+backup=$2
+sudo rm -rf -- "$deploy_dir"
+sudo tar xzf "$backup" -C "$(dirname "$deploy_dir")"
+REMOTE
     if xray_start "$host" "$deploy_dir"; then
         success "$host: restored previous xray stack from backup"
         return 0
@@ -161,38 +130,54 @@ xray_apply() {
     # longer activates it - stop any leftover container so it doesn't run on
     # a stale config/cert after the profile is dropped.
     if [ "$hysteria_enabled" != "true" ]; then
-        ssh_run "$host" "cd ${deploy_dir} 2>/dev/null && docker compose --profile hysteria rm -sf hysteria" >/dev/null 2>&1 || true
+        remote_bash "$host" "$deploy_dir" <<'REMOTE' >/dev/null 2>&1 || true
+cd "$1" 2>/dev/null && docker compose --profile hysteria rm -sf hysteria
+REMOTE
     fi
 
-    sig=$(find "$stage_dir" -type f -exec sha256sum {} + | awk '{print $1}' | sort | sha256sum | awk '{print $1}')
-    remote_sig=$(ssh_run "$host" "cat ${marker} 2>/dev/null" || true)
+    sig=$(stage_digest "$stage_dir")
+    remote_sig=$(remote_bash "$host" "$marker" <<'REMOTE' || true
+cat "$1" 2>/dev/null
+REMOTE
+    )
     if [ "$remote_sig" = "$sig" ]; then
         xray_ensure_running "$host" "$deploy_dir" "$hysteria_enabled" \
             || { error "$host: xray stack did not become fully running"; return 1; }
         return 0
     fi
 
-    ssh_run "$host" "sudo mkdir -p ${deploy_dir}" \
+    remote_bash "$host" "$deploy_dir" <<'REMOTE' \
         || { error "$host: failed to create $deploy_dir"; return 1; }
-    if ssh_run "$host" "[ -n \"\$(ls -A ${deploy_dir} 2>/dev/null)\" ]"; then
-        ssh_run "$host" "sudo tar czf ${backup} -C \$(dirname ${deploy_dir}) \$(basename ${deploy_dir})" \
+sudo mkdir -p "$1"
+REMOTE
+    if remote_bash "$host" "$deploy_dir" <<'REMOTE'; then
+[ -n "$(ls -A "$1" 2>/dev/null)" ]
+REMOTE
+        remote_bash "$host" "$deploy_dir" "$backup" <<'REMOTE' \
             || { error "$host: failed to snapshot current xray stack before swap"; return 1; }
+set -euo pipefail
+sudo tar czf "$2" -C "$(dirname "$1")" "$(basename "$1")"
+REMOTE
     fi
 
     info "$host: uploading rendered xray stack"
     mesh_upload_dir_merge "$host" "$stage_dir" "$deploy_dir" || return 1
 
-    local hysteria_mkdir="" hysteria_chmod=""
-    if [ "$hysteria_enabled" = "true" ]; then
-        hysteria_mkdir="${deploy_dir}/hysteria/acme"
-        hysteria_chmod="${deploy_dir}/hysteria/config.yaml"
-    fi
-    ssh_run "$host" "
-        sudo mkdir -p ${deploy_dir}/logs ${deploy_dir}/adguard/work ${deploy_dir}/adguard/conf ${hysteria_mkdir} &&
-        sudo chmod 644 ${deploy_dir}/logs &&
-        sudo chmod +x ${deploy_dir}/entrypoint.sh &&
-        sudo chmod 644 ${deploy_dir}/.env ${deploy_dir}/config/config.json ${deploy_dir}/adguard/conf/AdGuardHome.yaml ${deploy_dir}/docker-compose.yml ${deploy_dir}/stats.py ${hysteria_chmod}
-    " || { error "$host: failed to finalize permissions on $deploy_dir"; return 1; }
+    remote_bash "$host" "$deploy_dir" "$hysteria_enabled" <<'REMOTE' \
+        || { error "$host: failed to finalize permissions on $deploy_dir"; return 1; }
+set -euo pipefail
+deploy_dir=$1
+hysteria_enabled=$2
+sudo mkdir -p "$deploy_dir/logs" "$deploy_dir/adguard/work" "$deploy_dir/adguard/conf"
+sudo chmod 0755 "$deploy_dir/logs"
+sudo chmod 0755 "$deploy_dir/entrypoint.sh"
+sudo chmod 0600 "$deploy_dir/.env" "$deploy_dir/config/config.json"
+sudo chmod 0644 "$deploy_dir/adguard/conf/AdGuardHome.yaml" "$deploy_dir/docker-compose.yml" "$deploy_dir/stats.py"
+if [ "$hysteria_enabled" = true ]; then
+    sudo mkdir -p "$deploy_dir/hysteria/acme"
+    sudo chmod 0600 "$deploy_dir/hysteria/config.yaml"
+fi
+REMOTE
 
     if ! xray_start "$host" "$deploy_dir" "$hysteria_enabled"; then
         error "$host: xray stack failed to start - rolling back"
@@ -200,7 +185,9 @@ xray_apply() {
         return 1
     fi
 
-    ssh_run "$host" "echo '${sig}' | sudo tee ${marker} > /dev/null"
+    remote_bash "$host" "$marker" "$sig" <<'REMOTE'
+printf '%s\n' "$2" | sudo tee "$1" >/dev/null
+REMOTE
     success "$host: xray stack applied and running"
 }
 
@@ -208,7 +195,10 @@ xray_apply() {
 # static, system-level files - rewritten unconditionally (cheap, idempotent).
 xray_install_system_files() {
     local host="$1" logrotate_local="$2"
-    mesh_upload_file "$host" "$logrotate_local" "/etc/logrotate.d/xray" || return 1
-    ssh_run "$host" "sudo chmod 644 /etc/logrotate.d/xray"
-    ssh_run "$host" "echo '0 */12 * * * root docker restart warp xray >> /var/log/xray-restart.log 2>&1' | sudo tee /etc/cron.d/xray-restart > /dev/null && sudo chmod 644 /etc/cron.d/xray-restart"
+    mesh_upload_file "$host" "$logrotate_local" "/etc/logrotate.d/xray" 0644 root root || return 1
+    remote_bash "$host" <<'REMOTE'
+set -euo pipefail
+printf '%s\n' '0 */12 * * * root docker restart warp xray >> /var/log/xray-restart.log 2>&1' | sudo tee /etc/cron.d/xray-restart >/dev/null
+sudo chmod 0644 /etc/cron.d/xray-restart
+REMOTE
 }

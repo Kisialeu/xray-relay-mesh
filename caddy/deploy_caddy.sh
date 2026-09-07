@@ -31,11 +31,14 @@ inv_validate "$INVENTORY" || exit 1
 CADDY_HOST="$(inv_subs_caddy_host "$INVENTORY")"
 [ -n "$CADDY_HOST" ] || { error "subs.caddy_host not set in $INVENTORY"; exit 1; }
 CADDY_DEPLOY_DIR="$(inv_subs_caddy_deploy_dir "$INVENTORY")"
+mesh_validate_deploy_dir "$CADDY_DEPLOY_DIR" || exit 1
 SUB_DOMAIN="$(inv_subs_domain "$INVENTORY")"
 [ -n "$SUB_DOMAIN" ] || { error "subs.domain not set in $INVENTORY"; exit 1; }
 
 : "${ORIGIN_VERIFY_SECRET:=$(inv_subs_origin_verify_secret "$INVENTORY")}"
 [ -n "$ORIGIN_VERIFY_SECRET" ] || { error "subs.origin_verify_secret not set in $INVENTORY (or export ORIGIN_VERIFY_SECRET)"; exit 1; }
+[[ "$ORIGIN_VERIFY_SECRET" =~ ^[A-Za-z0-9._~:-]+$ ]] \
+    || { error "ORIGIN_VERIFY_SECRET must contain only URL-safe characters"; exit 1; }
 
 mesh_resolve_subs_ssh "$INVENTORY"
 
@@ -43,25 +46,36 @@ info "$CADDY_HOST: preparing host"
 mesh_check_docker "$CADDY_HOST" || exit 1
 mesh_check_docker_compose "$CADDY_HOST" || exit 1
 
-ssh_run "$CADDY_HOST" "sudo mkdir -p ${CADDY_DEPLOY_DIR}/subs" \
+remote_bash "$CADDY_HOST" "$CADDY_DEPLOY_DIR" <<'REMOTE' \
     || { error "$CADDY_HOST: failed to create $CADDY_DEPLOY_DIR"; exit 1; }
+sudo mkdir -p "$1/subs"
+REMOTE
 
 info "$CADDY_HOST: uploading Caddyfile + compose.yml + .env"
-mesh_upload_file "$CADDY_HOST" "$SCRIPT_DIR/Caddyfile" "${CADDY_DEPLOY_DIR}/Caddyfile" || exit 1
-mesh_upload_file "$CADDY_HOST" "$SCRIPT_DIR/docker-compose.caddy.yml" "${CADDY_DEPLOY_DIR}/compose.yml" || exit 1
+mesh_upload_file "$CADDY_HOST" "$SCRIPT_DIR/Caddyfile" "${CADDY_DEPLOY_DIR}/Caddyfile" 0644 root root || exit 1
+mesh_upload_file "$CADDY_HOST" "$SCRIPT_DIR/docker-compose.caddy.yml" "${CADDY_DEPLOY_DIR}/compose.yml" 0644 root root || exit 1
 
 ENV_TMP="$(mktemp)"
 printf 'ORIGIN_VERIFY_SECRET=%s\nSUB_DOMAIN=%s\n' "$ORIGIN_VERIFY_SECRET" "$SUB_DOMAIN" > "$ENV_TMP"
-mesh_upload_file "$CADDY_HOST" "$ENV_TMP" "${CADDY_DEPLOY_DIR}/.env" || { rm -f "$ENV_TMP"; exit 1; }
+mesh_upload_file "$CADDY_HOST" "$ENV_TMP" "${CADDY_DEPLOY_DIR}/.env" 0600 root root || { rm -f "$ENV_TMP"; exit 1; }
 rm -f "$ENV_TMP"
 
 info "$CADDY_HOST: starting/reloading Caddy"
 if mesh_container_running "$CADDY_HOST" "caddy-subs"; then
-    ssh_run "$CADDY_HOST" "cd ${CADDY_DEPLOY_DIR} && docker compose up -d --force-recreate" \
+    remote_bash "$CADDY_HOST" "$CADDY_DEPLOY_DIR" <<'REMOTE' \
         || { error "$CADDY_HOST: failed to recreate Caddy"; exit 1; }
+set -euo pipefail
+cd "$1"
+docker compose up -d --force-recreate
+REMOTE
 else
-    ssh_run "$CADDY_HOST" "cd ${CADDY_DEPLOY_DIR} && docker compose pull && docker compose up -d" \
+    remote_bash "$CADDY_HOST" "$CADDY_DEPLOY_DIR" <<'REMOTE' \
         || { error "$CADDY_HOST: failed to start Caddy"; exit 1; }
+set -euo pipefail
+cd "$1"
+docker compose pull
+docker compose up -d
+REMOTE
 fi
 
 sleep 3

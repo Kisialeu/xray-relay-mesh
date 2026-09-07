@@ -10,6 +10,7 @@ source "$SCRIPT_DIR/../lib/inventory.sh"
 
 INVENTORY="${1:-$MESH_DIR/inventory.json}"
 WEB_DEPLOY_DIR="${WEB_DEPLOY_DIR:-/opt/xray-web}"
+mesh_validate_deploy_dir "$WEB_DEPLOY_DIR" || exit 1
 WEB_BIND="${STATS_WEB_BIND:-0.0.0.0}"
 WEB_APP_PORT="${WEB_APP_PORT:-9095}"
 DOMAIN="${STATS_WEB_DOMAIN:-$(jq -r '.stats.web_domain // ""' "$INVENTORY")}"
@@ -44,7 +45,10 @@ env_file_value() {
 # required for rebuilding the web stack when a valid remote .env already
 # exists. Preserve that file unless all certificate inputs are supplied.
 if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-    REMOTE_ENV="$(ssh_run "$HOST" "sudo cat '$WEB_DEPLOY_DIR/.env' 2>/dev/null" || true)"
+    REMOTE_ENV="$(remote_bash "$HOST" "$WEB_DEPLOY_DIR" <<'REMOTE' || true
+sudo cat "$1/.env" 2>/dev/null
+REMOTE
+    )"
     if [ -n "$REMOTE_ENV" ]; then
         PRESERVE_REMOTE_ENV=1
         REMOTE_DOMAIN="$(env_file_value STATS_WEB_DOMAIN)"
@@ -69,6 +73,8 @@ APP_PORT="${STATS_APP_PORT:-$(inv_stats_app_port "$INVENTORY")}"
     || { error "WEB_APP_PORT must differ from stats.web_port and stats.app_port"; exit 1; }
 [ -n "$DOMAIN" ] || { error "stats.web_domain or STATS_WEB_DOMAIN is required"; exit 1; }
 [ -n "$EMAIL" ] || { error "stats.web_email or STATS_WEB_EMAIL is required"; exit 1; }
+[[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] \
+    || { error "stats.web_email contains unsupported characters"; exit 1; }
 [ -n "$STATS_TOKEN" ] || { error "stats.token is required"; exit 1; }
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] \
     || { error "stats.web_domain contains unsupported characters"; exit 1; }
@@ -125,13 +131,22 @@ fi
 
 info "$MASTER_NODE ($HOST): deploying stats web server"
 mesh_upload_dir_merge "$HOST" "$stage" "$WEB_DEPLOY_DIR"
-ssh_run "$HOST" "sudo install -d -m 755 '$WEB_DEPLOY_DIR/letsencrypt'"
-ssh_run "$HOST" "sudo chmod 600 '$WEB_DEPLOY_DIR/.env'"
-ssh_run "$HOST" "sudo chown root:101 '$WEB_DEPLOY_DIR/htpasswd' && sudo chmod 640 '$WEB_DEPLOY_DIR/htpasswd'"
-ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose build certbot && docker compose run --rm --entrypoint certbot certbot certonly --dns-route53 --non-interactive --agree-tos --email '$EMAIL' --domain '$DOMAIN' --keep-until-expiring"
-ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose build --pull web-app stats-web certbot"
-ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose run --rm --no-deps --entrypoint nginx stats-web -t"
-ssh_run "$HOST" "cd '$WEB_DEPLOY_DIR' && docker compose up -d --wait --wait-timeout 60 --force-recreate --remove-orphans web-app stats-web certbot"
+remote_bash "$HOST" "$WEB_DEPLOY_DIR" "$EMAIL" "$DOMAIN" <<'REMOTE'
+set -euo pipefail
+deploy_dir=$1
+email=$2
+domain=$3
+sudo install -d -m 0755 "$deploy_dir/letsencrypt"
+sudo chmod 0600 "$deploy_dir/.env"
+sudo chown root:101 "$deploy_dir/htpasswd"
+sudo chmod 0640 "$deploy_dir/htpasswd"
+cd "$deploy_dir"
+docker compose build certbot
+docker compose run --rm --entrypoint certbot certbot certonly --dns-route53 --non-interactive --agree-tos --email "$email" --domain "$domain" --keep-until-expiring
+docker compose build --pull web-app stats-web certbot
+docker compose run --rm --no-deps --entrypoint nginx stats-web -t
+docker compose up -d --wait --wait-timeout 60 --force-recreate --remove-orphans web-app stats-web certbot
+REMOTE
 mesh_container_running "$HOST" xray-stats-web \
     || { error "$MASTER_NODE: stats web container is not running - check docker compose -f '$WEB_DEPLOY_DIR/docker-compose.yml' logs stats-web"; exit 1; }
 mesh_container_running "$HOST" xray-web-app \

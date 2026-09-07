@@ -6,24 +6,34 @@
 # ephemeral haproxy container. Never touches the running config/container.
 haproxy_validate_remote() {
     local host="$1" remote_path="$2"
-    ssh_run "$host" "docker run --rm -v ${remote_path}:/usr/local/etc/haproxy/haproxy.cfg:ro haproxy:alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg"
+    remote_bash "$host" "$remote_path" <<'REMOTE'
+docker run --rm -v "$1:/usr/local/etc/haproxy/haproxy.cfg:ro" haproxy:alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+REMOTE
 }
 
 haproxy_remote_sha() {
     local host="$1" remote_path="$2"
-    ssh_run "$host" "sha256sum ${remote_path} 2>/dev/null | awk '{print \$1}'"
+    remote_bash "$host" "$remote_path" <<'REMOTE'
+sha256sum "$1" 2>/dev/null | awk '{print $1}'
+REMOTE
 }
 
 haproxy_remote_file_exists() {
     local host="$1" remote_path="$2"
-    ssh_run "$host" "test -f ${remote_path}"
+    remote_bash "$host" "$remote_path" <<'REMOTE'
+test -f "$1"
+REMOTE
 }
 
 haproxy_container_running() { mesh_container_running "$1" "xray-relay"; }
 
 haproxy_reload() {
     local host="$1" deploy_dir="$2"
-    ssh_run "$host" "cd ${deploy_dir} && docker compose up -d --force-recreate xray-relay"
+    remote_bash "$host" "$deploy_dir" <<'REMOTE'
+set -euo pipefail
+cd "$1"
+docker compose up -d --force-recreate xray-relay
+REMOTE
 }
 
 haproxy_apply_stats_firewall() {
@@ -36,12 +46,13 @@ haproxy_apply_stats_firewall() {
 
     local source
     for source in $sources; do
-        ssh_run "$host" "
-            set -e
-            if ! sudo iptables -C INPUT -s '${source}' -p tcp --dport '${port}' -j ACCEPT 2>/dev/null; then
-                sudo iptables -I INPUT 1 -s '${source}' -p tcp --dport '${port}' -j ACCEPT
-            fi
-        " || { error "$host: failed to allow stats port ${port} from ${source}"; return 1; }
+        remote_bash "$host" "$source" "$port" <<'REMOTE' \
+            || { error "$host: failed to allow stats port ${port} from ${source}"; return 1; }
+set -euo pipefail
+if ! sudo iptables -C INPUT -s "$1" -p tcp --dport "$2" -j ACCEPT 2>/dev/null; then
+    sudo iptables -I INPUT 1 -s "$1" -p tcp --dport "$2" -j ACCEPT
+fi
+REMOTE
     done
 
     ssh_run "$host" "
@@ -55,8 +66,10 @@ haproxy_apply_stats_firewall() {
 
 haproxy_check_stats_listener() {
     local host="$1" port="$2"
-    ssh_run "$host" "ss -lnt | awk '{print \$4}' | grep -Eq '(^|:)${port}$'" \
+    remote_bash "$host" "$port" <<'REMOTE' \
         || { error "$host: HAProxy is not listening on stats port ${port}"; return 1; }
+ss -lnt | awk '{print $4}' | grep -Eq "(^|:)$1$"
+REMOTE
 }
 
 # Pushes docker-compose.relay.yml to $host, idempotently (only overwrites if
@@ -67,20 +80,24 @@ haproxy_ensure_compose() {
     local remote="${deploy_dir}/docker-compose.yml"
     local staged="${deploy_dir}/docker-compose.yml.new"
 
-    mesh_upload_file "$host" "$local_compose" "$staged" || return 1
+    mesh_upload_file "$host" "$local_compose" "$staged" 0644 root root || return 1
 
     if haproxy_remote_file_exists "$host" "$remote"; then
         local sha_active sha_staged
         sha_active=$(haproxy_remote_sha "$host" "$remote")
         sha_staged=$(haproxy_remote_sha "$host" "$staged")
         if [ "$sha_active" = "$sha_staged" ]; then
-            ssh_run "$host" "sudo rm -f ${staged}"
+            remote_bash "$host" "$staged" <<'REMOTE'
+sudo rm -f -- "$1"
+REMOTE
             return 0
         fi
     fi
 
-    ssh_run "$host" "sudo mv ${staged} ${remote}" \
+    remote_bash "$host" "$staged" "$remote" <<'REMOTE' \
         || { error "$host: failed to promote docker-compose.yml"; return 1; }
+sudo mv "$1" "$2"
+REMOTE
     info "$host: docker-compose.yml updated"
 }
 
@@ -98,11 +115,13 @@ haproxy_apply() {
     local staged="${cfg_dir}/haproxy.cfg.new"
     local last_good="${cfg_dir}/haproxy.cfg.last-good"
 
-    mesh_upload_file "$host" "$local_cfg" "$staged" || return 1
+    mesh_upload_file "$host" "$local_cfg" "$staged" 0644 root root || return 1
 
     if ! haproxy_validate_remote "$host" "$staged"; then
         error "$host: staged haproxy.cfg failed validation - leaving running config untouched"
-        ssh_run "$host" "sudo rm -f ${staged}"
+        remote_bash "$host" "$staged" <<'REMOTE'
+sudo rm -f -- "$1"
+REMOTE
         return 1
     fi
 
@@ -111,7 +130,9 @@ haproxy_apply() {
         sha_active=$(haproxy_remote_sha "$host" "$active")
         sha_staged=$(haproxy_remote_sha "$host" "$staged")
         if [ "$sha_active" = "$sha_staged" ]; then
-            ssh_run "$host" "sudo rm -f ${staged}"
+            remote_bash "$host" "$staged" <<'REMOTE'
+sudo rm -f -- "$1"
+REMOTE
             if haproxy_container_running "$host"; then
                 info "$host: config unchanged - no-op"
                 return 0
@@ -126,12 +147,16 @@ haproxy_apply() {
             success "$host: xray-relay started (config was already up to date)"
             return 0
         fi
-        ssh_run "$host" "sudo cp ${active} ${last_good}" \
+        remote_bash "$host" "$active" "$last_good" <<'REMOTE' \
             || { error "$host: failed to snapshot current haproxy.cfg before swap"; return 1; }
+sudo cp "$1" "$2"
+REMOTE
     fi
 
-    ssh_run "$host" "sudo mv ${staged} ${active}" \
+    remote_bash "$host" "$staged" "$active" <<'REMOTE' \
         || { error "$host: failed to promote staged haproxy.cfg"; return 1; }
+sudo mv "$1" "$2"
+REMOTE
 
     if ! haproxy_reload "$host" "$deploy_dir"; then
         error "$host: reload command failed - rolling back"
@@ -167,8 +192,10 @@ haproxy_rollback() {
         return 1
     fi
 
-    ssh_run "$host" "sudo cp ${last_good} ${active}" \
+    remote_bash "$host" "$last_good" "$active" <<'REMOTE' \
         || { error "$host: failed to restore haproxy.cfg.last-good"; return 1; }
+sudo cp "$1" "$2"
+REMOTE
     haproxy_reload "$host" "$deploy_dir"
 
     sleep 3
