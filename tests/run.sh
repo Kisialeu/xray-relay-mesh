@@ -62,7 +62,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..14\n'
+printf '1..16\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/examples/inventory.3node.json"
 
@@ -128,3 +128,13 @@ REMOTE
 [ "$remote_output" = "$payload" ] && [ ! -e "$TEST_TMP/injected" ] \
     || fail "remote positional arguments prevent command injection"
 pass "remote positional arguments prevent command injection"
+
+created_stage=""
+stage_create created_stage unit
+[ -d "$created_stage" ] || fail "stage_create creates a registered stage"
+stage_cleanup
+[ ! -e "$created_stage" ] || fail "stage_create creates a registered stage"
+pass "stage cleanup removes registered stages"
+
+printf '../escape\t600\t%s\n' "$(printf x | sha256sum | awk '{print $1}')" > "$TEST_TMP/unsafe.manifest"
+assert_failure "managed manifest rejects traversal" stage_manifest_validate "$TEST_TMP/unsafe.manifest"
