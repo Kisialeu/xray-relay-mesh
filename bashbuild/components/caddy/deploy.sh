@@ -73,7 +73,7 @@ caddy_deploy() {
     remote_cleanup_stage "$host" "$deploy_dir" "$run_id" >/dev/null 2>&1 || true
     remote_lock_release "$host" "$deploy_dir" "$run_id" >/dev/null 2>&1 || true
     if [ "$rc" -eq 0 ]; then
-        if [ "$changed" -eq 0 ]; then result=noop; else result=applied; fi
+        if [ "$changed" -eq 0 ]; then result=no_changes; else result=applied; fi
         deployment_summary caddy "$host" "$result" "$local_digest"
     else
         deployment_summary caddy "$host" failed "$local_digest"

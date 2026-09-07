@@ -270,6 +270,14 @@
       },
       {
         "type": "field",
+        "protocol": [
+          "bittorrent"
+        ],
+        "network": "tcp,udp",
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
         "ip": [
           "geoip:ru"
         ],

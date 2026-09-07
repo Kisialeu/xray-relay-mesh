@@ -94,7 +94,7 @@ sync_subs_to_caddy() {
     remote_cleanup_stage "$host" "$content_dir" "$run_id" >/dev/null 2>&1 || true
     remote_lock_release "$host" "$content_dir" "$run_id" >/dev/null 2>&1 || true
     if [ "$rc" -eq 0 ]; then
-        if [ "$changed" -eq 0 ]; then result=noop; else result=applied; fi
+        if [ "$changed" -eq 0 ]; then result=no_changes; else result=applied; fi
         deployment_summary subscriptions "$host" "$result" "$local_digest"
     else
         deployment_summary subscriptions "$host" failed "$local_digest"

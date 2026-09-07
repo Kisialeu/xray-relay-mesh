@@ -217,6 +217,7 @@ render_xray_config_json() {
               {"type": "field", "ip": ["2000::/3", "fc00::/7", "fe80::/10", "::1/128"], "outboundTag": "block"},
               {"type": "field", "ip": [$xray_dns1_cidr], "outboundTag": "direct"},
               {"type": "field", "ip": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16"], "outboundTag": "block"},
+              {"type": "field", "protocol": ["bittorrent"], "network": "tcp,udp", "outboundTag": "block"},
               {"type": "field", "ip": ["geoip:ru"], "outboundTag": "warp"},
               {"type": "field", "domain": ["geosite:category-gov-ru"], "outboundTag": "warp"},
               {"type": "field", "inboundTag": ["vless-in"], "outboundTag": "direct"}

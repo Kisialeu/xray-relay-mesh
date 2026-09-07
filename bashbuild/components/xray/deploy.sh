@@ -77,7 +77,7 @@ xray_deploy_one() {
     remote_cleanup_stage "$host" "$XRAY_DEPLOY_DIR" "$run_id" xray-net >/dev/null 2>&1 || true
     remote_lock_release "$host" "$XRAY_DEPLOY_DIR" "$run_id" >/dev/null 2>&1 || true
     if [ "$rc" -eq 0 ]; then
-        if [ "$changed" -eq 0 ]; then result=noop; else result=applied; fi
+        if [ "$changed" -eq 0 ]; then result=no_changes; else result=applied; fi
         deployment_summary xray "$node" "$result" "$local_digest"
     else
         deployment_summary xray "$node" failed "$local_digest"
