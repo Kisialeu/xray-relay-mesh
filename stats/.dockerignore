@@ -1,0 +1,26 @@
+# VCS + tooling
+.git
+.gitignore
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local secrets / runtime state
+.env
+.env.*
+inventory.json
+ssh/
+postgres/
+*.sqlite3
+*.db
+
+# Deploy artifacts (not needed in the image; deployed as host files)
+docker-compose*.yml
+deploy_stats.sh
+run_stats.sh
+tunnel_stats.sh
+
+# Docs
+*.md

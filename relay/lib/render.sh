@@ -46,6 +46,33 @@ backend relay_out_${peer_name}
 EOF
 }
 
+render_haproxy_stats_block() {
+    local self="$1" node_port="$2" public_port="$3" token="$4" rate_period="$5" rate_requests="$6" allowed_sources="$7"
+    cat << EOF
+
+frontend stats_in_${self}
+    mode http
+    bind *:${public_port}
+    option httplog
+    stick-table type ip size 100k expire ${rate_period} store http_req_rate(${rate_period})
+    http-request track-sc0 src
+    http-request deny deny_status 429 if { sc_http_req_rate(0) gt ${rate_requests} }
+EOF
+    if [ -n "$allowed_sources" ]; then
+        echo "    http-request deny deny_status 403 unless { src ${allowed_sources} }"
+    fi
+    cat << EOF
+    http-request deny deny_status 403 unless { req.hdr(X-Stats-Token) -m str ${token} }
+    http-request deny deny_status 404 unless { path -i /health /stats /online }
+    default_backend stats_out_${self}
+
+backend stats_out_${self}
+    mode http
+    option httpchk GET /health
+    server local_stats 127.0.0.1:${node_port} check inter 10s fall 3 rise 2
+EOF
+}
+
 # Prints the full haproxy.cfg for node $2, sourced from inventory file $1.
 # One frontend+backend pair per peer (N-1 for a mesh of N nodes) - the node's
 # own direct Xray port is never bound here, Xray owns that port directly.
@@ -64,4 +91,23 @@ render_haproxy_cfg() {
     while read -r name host port relay_port; do
         render_haproxy_peer_block "$name" "$host" "$port" "$relay_port"
     done < <(inv_peers_of "$file" "$self")
+
+    if [ "$(inv_stats_expose_haproxy "$file")" = "true" ]; then
+        local token allowed_sources
+        token=$(inv_stats_token "$file")
+        allowed_sources=$(inv_stats_allowed_sources "$file")
+        if [ -z "$token" ]; then
+            error "stats.expose_via_haproxy=true requires stats.token"
+            return 1
+        fi
+        render_haproxy_stats_block \
+            "$self" \
+            "$(inv_stats_node_port "$file")" \
+            "$(inv_stats_public_port "$file")" \
+            "$token" \
+            "$(inv_stats_rate_limit_period "$file")" \
+            "$(inv_stats_rate_limit_requests "$file")" \
+            "$allowed_sources"
+
+    fi
 }

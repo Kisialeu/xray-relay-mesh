@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="referrer" content="no-referrer">
+    <meta name="color-scheme" content="dark">
+    <title>ride life</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+          --bg:      #0a0a0a;
+          --bg2:     #101010;
+          --border:  #1e1e1e;
+          --green:   #33ff33;
+          --amber:   #ffaa00;
+          --blue:    #4488ff;
+          --red:     #ff4444;
+          --muted:   #7a7a7a;
+          --white:   #cccccc;
+          --font:    'JetBrains Mono','Cascadia Code','Fira Code','Courier New',monospace;
+        }
+        html, body    { height: 100dvh; width: 100vw; background: var(--bg); color: var(--white); font-family: var(--font); font-size: 14px; line-height: 1.65; overflow: hidden; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+        #app          { display: flex; flex-direction: column; height: 100dvh; width: 100%; }
+        #titlebar     { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 9px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; user-select: none; }
+        .dots         { display: flex; gap: 6px; }
+        .dot          { width: 11px; height: 11px; border-radius: 50%; }
+        .dot-r        { background: #ff5f57; }
+        .dot-a        { background: #febc2e; }
+        .dot-g        { background: #28c840; }
+        #tb-label     { flex: 1; text-align: center; color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+        #output       { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 18px 26px 8px; }
+        #output::-webkit-scrollbar       { width: 4px; }
+        #output::-webkit-scrollbar-thumb { background: var(--border); }
+        #input-row    { display: flex; align-items: center; padding: 10px 26px 12px; border-top: 1px solid var(--border); background: var(--bg); flex-shrink: 0; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+        #prompt-label { color: var(--green); white-space: nowrap; margin-right: 8px; user-select: none; font-weight: 700; font-size: 13px; }
+        .prompt-host  { color: var(--green); }
+        #cmd-input    { flex: 1; background: transparent; border: none; outline: none; color: var(--white); font-family: var(--font); font-size: 16px; caret-color: var(--green); -webkit-tap-highlight-color: transparent; }
+        #input-row:focus-within { border-top-color: var(--green); }
+        #cmd-input:disabled { cursor: not-allowed; opacity: .45; }
+        .out-line     { margin: 1px 0; word-break: break-word; overflow-wrap: anywhere; }
+        .out-blank    { min-height: 1.1em; }
+        .c-green      { color: var(--green); }
+        .c-amber      { color: var(--amber); }
+        .c-blue       { color: var(--blue); }
+        .c-red        { color: var(--red); }
+        .c-muted      { color: var(--muted); }
+        .c-white      { color: var(--white); }
+        .bold         { font-weight: 700; }
+        .card         { border: 1px solid var(--border); border-radius: 3px; padding: 12px 16px; margin: 8px 0; background: var(--bg2); }
+        .card-title   { color: var(--amber); font-weight: 700; margin-bottom: 4px; word-break: break-word; }
+        .card-date    { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+        .card-body    { color: var(--white); line-height: 1.75; white-space: normal; word-break: break-word; }
+        .quote-bar    { border-left: 2px solid var(--amber); padding: 6px 14px; margin: 8px 0; color: var(--muted); font-style: italic; white-space: pre-line; word-break: break-word; }
+        .divider      { border-top: 1px solid var(--border); margin: 8px 0; }
+        .help-grid    { display: grid; grid-template-columns: 150px 1fr; margin: 3px 0; gap: 0 8px; }
+        .kv-grid      { display: grid; grid-template-columns: 130px 1fr; margin: 5px 0; gap: 0 12px; }
+        .help-grid span, .kv-grid span { word-break: break-word; overflow-wrap: anywhere; min-width: 0; }
+        .noscript-message { color: var(--amber); padding: 12px 0; }
+        .sr-only      { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+        @media (prefers-reduced-motion: no-preference) {
+          #output.ready { scroll-behavior: smooth; }
+          @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+          .scanline { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: rgba(51,255,51,.025); pointer-events: none; animation: scanline 12s linear infinite; z-index: 999; }
+          @keyframes fi { from { opacity: 0; } to { opacity: 1; } }
+          .fi { animation: fi .07s ease forwards; }
+        }
+        @media (max-width: 600px) {
+          html, body    { font-size: 12px; }
+          #output       { padding: 10px 14px 6px; }
+          #input-row    { padding: 6px 10px max(8px, env(safe-area-inset-bottom)); }
+          #prompt-label { font-size: 10px; }
+          #cmd-input    { font-size: 16px; }
+          .prompt-host  { display: none; }
+          .help-grid    { grid-template-columns: 80px 1fr; gap: 0 6px; }
+          .kv-grid      { grid-template-columns: 80px 1fr; gap: 0 6px; }
+        }
+    </style>
+</head>
+<body>
+<div class="scanline" aria-hidden="true"></div>
+<div id="app">
+    <header id="titlebar">
+        <div class="dots" aria-hidden="true">
+            <div class="dot dot-r"></div>
+            <div class="dot dot-a"></div>
+            <div class="dot dot-g"></div>
+        </div>
+        <div id="tb-label">ride life - terminal</div>
+    </header>
+    <div id="output" role="log" aria-live="off" aria-label="Terminal output" aria-atomic="false">
+        <noscript><div class="noscript-message">JavaScript is required for the interactive terminal. No tracking or external resources are loaded.</div></noscript>
+    </div>
+    <div id="input-row">
+        <span id="prompt-label" aria-hidden="true"><span class="prompt-host">visitor@paravozika</span>:~$</span>
+        <label for="cmd-input" class="sr-only">Terminal input</label>
+        <input
+                id="cmd-input"
+                type="text"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                disabled
+                aria-label="Terminal command input"
+        />
+    </div>
+</div>
+<script src="/static/content.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

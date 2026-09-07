@@ -26,6 +26,39 @@ haproxy_reload() {
     ssh_run "$host" "cd ${deploy_dir} && docker compose up -d --force-recreate xray-relay"
 }
 
+haproxy_apply_stats_firewall() {
+    local host="$1" port="$2" sources="$3"
+
+    if [ -z "$sources" ]; then
+        warn "$host: stats.allowed_sources is empty - not modifying firewall for stats port ${port}"
+        return 0
+    fi
+
+    local source
+    for source in $sources; do
+        ssh_run "$host" "
+            set -e
+            if ! sudo iptables -C INPUT -s '${source}' -p tcp --dport '${port}' -j ACCEPT 2>/dev/null; then
+                sudo iptables -I INPUT 1 -s '${source}' -p tcp --dport '${port}' -j ACCEPT
+            fi
+        " || { error "$host: failed to allow stats port ${port} from ${source}"; return 1; }
+    done
+
+    ssh_run "$host" "
+        if command -v netfilter-persistent >/dev/null 2>&1; then
+            sudo netfilter-persistent save >/dev/null
+        elif [ -d /etc/iptables ]; then
+            sudo sh -c 'iptables-save > /etc/iptables/rules.v4'
+        fi
+    " || warn "$host: stats firewall rule applied but could not be persisted"
+}
+
+haproxy_check_stats_listener() {
+    local host="$1" port="$2"
+    ssh_run "$host" "ss -lnt | awk '{print \$4}' | grep -Eq '(^|:)${port}$'" \
+        || { error "$host: HAProxy is not listening on stats port ${port}"; return 1; }
+}
+
 # Pushes docker-compose.relay.yml to $host, idempotently (only overwrites if
 # content differs). This file is static across every node - only
 # config/haproxy.cfg changes when the inventory changes.

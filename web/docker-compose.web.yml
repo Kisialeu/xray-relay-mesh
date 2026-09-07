@@ -1,0 +1,51 @@
+services:
+  web-app:
+    build: .
+    container_name: xray-web-app
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      WEB_BIND: ${WEB_APP_BIND:-127.0.0.1}
+      WEB_PORT: ${WEB_APP_PORT:-9095}
+
+  stats-web:
+    build:
+      context: .
+      dockerfile: Nginx.Dockerfile
+    container_name: xray-stats-web
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      web-app:
+        condition: service_started
+    environment:
+      WEB_BIND: ${STATS_WEB_BIND:-127.0.0.1}
+      WEB_PORT: ${STATS_WEB_PORT:-9093}
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./htpasswd:/etc/nginx/.htpasswd:ro
+      - ./letsencrypt:/etc/letsencrypt:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://127.0.0.1:$${WEB_PORT}/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  certbot:
+    build: ./certbot
+    container_name: xray-stats-certbot
+    restart: unless-stopped
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID required}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY required}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      STATS_WEB_DOMAIN: ${STATS_WEB_DOMAIN:?STATS_WEB_DOMAIN required}
+      STATS_WEB_EMAIL: ${STATS_WEB_EMAIL:?STATS_WEB_EMAIL required}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        trap exit TERM; while :; do certbot renew --dns-route53 --non-interactive;
+        sleep 12h & wait $${!}; done

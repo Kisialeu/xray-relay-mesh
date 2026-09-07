@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push-model deploy: renders the Xray stack (.env, config.json, AdGuard Home
+# Renders the Xray stack (.env, config.json, AdGuard Home
 # config, docker-compose.yml) for one or all nodes from inventory.json,
 # uploads it, and starts/reloads it idempotently. Run this BEFORE
 # relay-mesh/relay/deploy_mesh.sh - the relay mesh proxies to these nodes'
@@ -26,6 +26,8 @@ source "$SCRIPT_DIR/../lib/common.sh"
 source "$SCRIPT_DIR/../lib/inventory.sh"
 # shellcheck source=lib/xray_render.sh
 source "$SCRIPT_DIR/lib/xray_render.sh"
+# shellcheck source=lib/hysteria_render.sh
+source "$SCRIPT_DIR/lib/hysteria_render.sh"
 # shellcheck source=lib/xray_ctl.sh
 source "$SCRIPT_DIR/lib/xray_ctl.sh"
 
@@ -60,13 +62,32 @@ generate_reality_keys_if_missing() {
     success "Generated and persisted new Reality keys to $file"
 }
 
+# One independent secret per hysteria-enabled node for its local trafficStats
+# API (see inv_node_hysteria_stats_secret in ../lib/inventory.sh) - generated
+# once and persisted, same idiom as Reality keys above, so stats polling
+# works with no manual secret-management step.
+generate_hysteria_stats_secrets_if_missing() {
+    local file="$1" name secret
+    command -v openssl >/dev/null 2>&1 || { error "openssl required locally to generate hysteria stats secrets"; return 1; }
+
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        secret=$(inv_node_hysteria_stats_secret "$file" "$name")
+        [ -n "$secret" ] && [ "$secret" != "null" ] && continue
+        secret=$(openssl rand -hex 32)
+        inv_node_set_hysteria_stats_secret "$file" "$name" "$secret"
+        success "Generated and persisted hysteria stats secret for node '$name'"
+    done < <(inv_hysteria_node_names "$file")
+}
+
 deploy_one() {
-    local name="$1" host stage rc=0
+    local name="$1" host stage rc=0 hysteria_enabled
     host=$(inv_node_field "$INVENTORY" "$name" host)
     if [ -z "$host" ] || [ "$host" = "null" ]; then
         error "no host for node '$name'"
         return 1
     fi
+    hysteria_enabled=$(inv_node_has_hysteria "$INVENTORY" "$name")
 
     mesh_resolve_ssh "$INVENTORY" "$name"
 
@@ -82,14 +103,21 @@ deploy_one() {
     cp "$ASSETS_DIR/stats.py" "$stage/stats.py"
     cp "$ASSETS_DIR/docker-compose.xray.yml" "$stage/docker-compose.yml"
 
+    render_hysteria_env "$INVENTORY" "$name" >> "$stage/.env"
+    if [ "$hysteria_enabled" = "true" ]; then
+        mkdir -p "$stage/hysteria"
+        render_hysteria_config "$INVENTORY" "$name" > "$stage/hysteria/config.yaml"
+    fi
+
     info "$name ($host): preparing host"
     xray_check_docker "$host" || rc=1
     xray_check_docker_compose "$host" || rc=1
     xray_check_remote_deps "$host"
     xray_check_bbr "$host"
+    [ "$hysteria_enabled" = "true" ] && xray_check_udp_buffers "$host" "$XRAY_DEPLOY_DIR"
 
     if [ "$rc" -eq 0 ]; then
-        xray_apply "$host" "$XRAY_DEPLOY_DIR" "$stage" || rc=1
+        xray_apply "$host" "$XRAY_DEPLOY_DIR" "$stage" "$hysteria_enabled" || rc=1
         xray_install_system_files "$host" "$ASSETS_DIR/xray-logrotate.conf" || true
     fi
 
@@ -102,6 +130,7 @@ deploy_one() {
 mesh_check_local_deps
 inv_validate "$INVENTORY" || exit 1
 generate_reality_keys_if_missing "$INVENTORY" || exit 1
+generate_hysteria_stats_secrets_if_missing "$INVENTORY" || exit 1
 
 FAILED=0
 if [ "$TARGET" = "all" ]; then

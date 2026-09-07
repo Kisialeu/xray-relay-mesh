@@ -1,13 +1,45 @@
 #!/usr/bin/env bash
-# Builds vless:// links and per-user subscription files from inventory.json.
-# Reality crypto params (pbk/sni/sid) are identical on every node by design,
-# so a relay link only differs from a direct link in host:port.
+# Builds vless:// and hysteria2:// links and per-user subscription files from
+# inventory.json. Reality crypto params (pbk/sni/sid) are identical on every
+# node by design, so a relay link only differs from a direct link in
+# host:port. Hysteria2 links are direct-connect only (no relay - see
+# lib/hysteria_render.sh) and only emitted for nodes with "hysteria" in
+# their "protocols" array (per-node opt-in, see inv_node_has_hysteria).
 # Sourced by generate_subscriptions.sh - not meant to be run directly.
+
+# A bare IPv6 literal ("2001:db8::1") is ambiguous in a URI's host:port
+# position (RFC 3986) - a parser can't tell the address from the port
+# without brackets. Domains and IPv4 literals never contain ":", so this is
+# a safe, unambiguous test - never treats a domain/IPv4 host as IPv6.
+_uri_host() {
+    case "$1" in
+        *:*) printf '[%s]' "$1" ;;
+        *)   printf '%s' "$1" ;;
+    esac
+}
 
 build_vless_link() {
     local uuid="$1" host="$2" port="$3" fragment="$4" pubkey="$5" sni="$6" short_id="$7" fp="$8"
     printf 'vless://%s@%s:%s?encryption=none&type=tcp&security=reality&pbk=%s&fp=%s&sni=%s&sid=%s&flow=xtls-rprx-vision#%s' \
-        "$uuid" "$host" "$port" "$pubkey" "$fp" "$sni" "$short_id" "$(jq -rn --arg s "$fragment" '$s|@uri')"
+        "$uuid" "$(_uri_host "$host")" "$port" "$pubkey" "$fp" "$sni" "$short_id" "$(jq -rn --arg s "$fragment" '$s|@uri')"
+}
+
+# password reuses the user's existing UUID (auth model shared with VLESS - one
+# identity per user, one place to revoke). sni must be the node's tls_domain,
+# NOT its host/IP - Hysteria2 needs a real ACME cert (unlike Reality, which
+# borrows a foreign site's handshake), and the connect address (host) can
+# safely stay an IP because SNI/cert validation is independent of it.
+build_hysteria2_link() {
+    local email="$1" uuid="$2" host="$3" port="$4" sni="$5" fragment="$6" obfs_password="$7"
+    local obfs_qs=""
+    [ -n "$obfs_password" ] && obfs_qs="&obfs=salamander&obfs-password=$(jq -rn --arg s "$obfs_password" '$s|@uri')"
+    printf 'hysteria2://%s:%s@%s:%s/?sni=%s%s#%s' \
+        "$(jq -rn --arg s "$email" '$s|@uri')" \
+        "$(jq -rn --arg s "$uuid" '$s|@uri')" \
+        "$(_uri_host "$host")" "$port" \
+        "$(jq -rn --arg s "$sni" '$s|@uri')" \
+        "$obfs_qs" \
+        "$(jq -rn --arg s "$fragment" '$s|@uri')"
 }
 
 user_hidden_on_node() {
@@ -50,18 +82,27 @@ build_all_links() {
         return 1
     fi
 
+    local hysteria_node_names hysteria_obfs_password
+    hysteria_node_names=$(inv_hysteria_node_names "$file")
+    hysteria_obfs_password=$(inv_hysteria_obfs_password "$file")
+
     local direct_nodes relay_pairs
-    direct_nodes=$(jq -r '.nodes[] | "\(.name)\t\(.host)\t\(.direct_port)\t\(.friendly_name // .name)"' "$file")
+    direct_nodes=$(jq -r '.nodes[] | "\(.name)\t\(.host)\t\(.direct_port)\t\(.friendly_name // .name)\t\(.tls_domain // "")"' "$file")
     relay_pairs=$(build_relay_pairs "$file")
 
     while IFS=$'\t' read -r uuid email; do
         [ -z "$uuid" ] && continue
 
-        while IFS=$'\t' read -r name host port display_name; do
+        while IFS=$'\t' read -r name host port display_name tls_domain; do
             [ -z "$name" ] && continue
             user_hidden_on_node "$file" "$name" "$email" && continue
             printf '%s\t%s\n' "$email" \
                 "$(build_vless_link "$uuid" "$host" "$port" "${display_name} direct" "$pubkey" "$sni" "$short_id" "$fp")"
+
+            if [ -n "$tls_domain" ] && grep -Fxq "$name" <<< "$hysteria_node_names"; then
+                printf '%s\t%s\n' "$email" \
+                    "$(build_hysteria2_link "$email" "$uuid" "$host" "$port" "$tls_domain" "${display_name} (UDP)" "$hysteria_obfs_password")"
+            fi
         done <<< "$direct_nodes"
 
         while IFS=$'\t' read -r entry_name entry_host peer_name relay_port; do

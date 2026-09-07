@@ -156,7 +156,7 @@ mesh_ssh_opt() {
 ssh_run() {
     local host="$1"; shift
     # shellcheck disable=SC2046
-    ssh $(mesh_ssh_opt) "$SSH_USER@$host" "$@"
+    ssh -n $(mesh_ssh_opt) "$SSH_USER@$host" "$@"
 }
 
 scp_to() {

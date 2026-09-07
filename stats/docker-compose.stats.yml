@@ -1,0 +1,64 @@
+services:
+  stats-postgres:
+    image: postgres:17-alpine
+    container_name: xray-stats-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-xray_stats}
+      POSTGRES_USER: ${POSTGRES_USER:-xray_stats}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+    ports:
+      - "127.0.0.1:${STATS_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  stats:
+    build: .
+    container_name: xray-stats
+    restart: unless-stopped
+    network_mode: host
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    depends_on:
+      stats-postgres:
+        condition: service_healthy
+    environment:
+      INVENTORY: /app/inventory.json
+      STATS_DATABASE_URL: postgresql://${POSTGRES_USER:-xray_stats}:${POSTGRES_PASSWORD}@127.0.0.1:${STATS_POSTGRES_PORT:-55432}/${POSTGRES_DB:-xray_stats}
+      STATS_BIND: ${STATS_BIND:-127.0.0.1}
+      STATS_APP_PORT: ${STATS_APP_PORT:-9094}
+      STATS_API_TOKEN: ${STATS_API_TOKEN:?STATS_API_TOKEN required}
+      STATS_POLL_INTERVAL: ${STATS_POLL_INTERVAL:-15}
+      STATS_HTTP_TIMEOUT: ${STATS_HTTP_TIMEOUT:-5}
+      STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-90}
+      STATS_ONLINE_WINDOW: ${STATS_ONLINE_WINDOW:-120}
+      STATS_ACTIVE_DURATION: ${STATS_ACTIVE_DURATION:-30}
+      STATS_MIN_ACTIVITY_BYTES: ${STATS_MIN_ACTIVITY_BYTES:-1024}
+      STATS_SSH_KEY: /app/ssh/id_ed25519
+      STATS_SSH_KNOWN_HOSTS: /app/ssh/known_hosts
+      STATS_SSH_USER: ${STATS_SSH_USER:-stats-poller}
+      STATS_SSH_PORT: ${STATS_SSH_PORT:-22}
+    volumes:
+      - ./inventory.json:/app/inventory.json:ro
+      - ./ssh:/app/ssh:ro
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
