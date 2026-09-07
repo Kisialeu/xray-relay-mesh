@@ -8,11 +8,11 @@ TEST_TMP="$(mktemp -d "${TMPDIR:-/tmp}/mesh-tests.XXXXXX")"
 trap 'rm -rf "$TEST_TMP"' EXIT
 
 # shellcheck source=../lib/common.sh
-source "$ROOT_DIR/lib/common.sh"
+source "$ROOT_DIR/bashbuild/lib/common.sh"
 # shellcheck source=../lib/inventory.sh
-source "$ROOT_DIR/lib/inventory.sh"
+source "$ROOT_DIR/bashbuild/lib/inventory.sh"
 # shellcheck source=../lib/stage.sh
-source "$ROOT_DIR/lib/stage.sh"
+source "$ROOT_DIR/bashbuild/lib/stage.sh"
 
 pass_count=0
 
@@ -63,22 +63,22 @@ assert_not_equal() {
 }
 
 printf '1..19\n'
-assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/examples/inventory.2node.json"
-assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/examples/inventory.3node.json"
+assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
+assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
-cp "$ROOT_DIR/examples/inventory.2node.json" "$TEST_TMP/invalid.json"
+cp "$ROOT_DIR/configs/examples/inventory.2node.json" "$TEST_TMP/invalid.json"
 jq '.nodes[1].name = .nodes[0].name' "$TEST_TMP/invalid.json" > "$TEST_TMP/duplicate.json"
 assert_failure "inventory rejects duplicate node names" inv_validate "$TEST_TMP/duplicate.json"
 
-jq '.nodes[0].host = "host; touch /tmp/injected"' "$ROOT_DIR/examples/inventory.2node.json" > "$TEST_TMP/injection.json"
+jq '.nodes[0].host = "host; touch /tmp/injected"' "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/injection.json"
 assert_failure "inventory rejects injection-shaped host values" inv_validate "$TEST_TMP/injection.json"
 
-jq '.environment = "production"' "$ROOT_DIR/examples/inventory.2node.json" > "$TEST_TMP/production-latest.json"
+jq '.environment = "production"' "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/production-latest.json"
 assert_failure "production inventory rejects latest images" inv_validate "$TEST_TMP/production-latest.json"
 
-assert_failure "CLI rejects unknown commands" env INVENTORY="$ROOT_DIR/examples/inventory.2node.json" "$ROOT_DIR/mesh.sh" unknown-command
-compare_golden_inventory "$ROOT_DIR/examples/inventory.2node.json"
-compare_golden_inventory "$ROOT_DIR/examples/inventory.3node.json"
+assert_failure "CLI rejects unknown commands" env INVENTORY="$ROOT_DIR/configs/examples/inventory.2node.json" "$ROOT_DIR/mesh.sh" unknown-command
+compare_golden_inventory "$ROOT_DIR/configs/examples/inventory.2node.json"
+compare_golden_inventory "$ROOT_DIR/configs/examples/inventory.3node.json"
 
 mkdir -p "$TEST_TMP/manifest/a" "$TEST_TMP/manifest/b"
 printf 'first\n' > "$TEST_TMP/manifest/a/value"
@@ -95,11 +95,11 @@ mv "$TEST_TMP/manifest/swap" "$TEST_TMP/manifest/b/value"
 manifest_after="$(stage_digest "$TEST_TMP/manifest")"
 assert_not_equal "manifest binds content to relative paths" "$manifest_before" "$manifest_after"
 
-cp "$ROOT_DIR/examples/inventory.2node.json" "$TEST_TMP/locked.json"
+cp "$ROOT_DIR/configs/examples/inventory.2node.json" "$TEST_TMP/locked.json"
 mkdir "$TEST_TMP/locked.json.lock"
 assert_failure "inventory mutation respects lock" env INVENTORY_LOCK_TIMEOUT=0 bash -c '
-    source "$1/lib/common.sh"
-    source "$1/lib/inventory.sh"
+    source "$1/bashbuild/lib/common.sh"
+    source "$1/bashbuild/lib/inventory.sh"
     inv_xray_set_reality_keys "$2" private public
 ' _ "$ROOT_DIR" "$TEST_TMP/locked.json"
 
@@ -140,12 +140,12 @@ printf '../escape\t600\t%s\n' "$(printf x | sha256sum | awk '{print $1}')" > "$T
 assert_failure "managed manifest rejects traversal" stage_manifest_validate "$TEST_TMP/unsafe.manifest"
 
 assert_success "normalized plan accepts global inventory option" \
-    "$ROOT_DIR/mesh.sh" --inventory "$ROOT_DIR/examples/inventory.2node.json" plan all
+    "$ROOT_DIR/mesh.sh" --inventory "$ROOT_DIR/configs/examples/inventory.2node.json" plan all
 
 assert_failure "non-interactive deploy requires explicit yes" \
-    "$ROOT_DIR/mesh.sh" deploy xray --node suomi --non-interactive --inventory "$ROOT_DIR/examples/inventory.2node.json"
+    "$ROOT_DIR/mesh.sh" deploy xray --node suomi --non-interactive --inventory "$ROOT_DIR/configs/examples/inventory.2node.json"
 
 render_dir="$TEST_TMP/rendered xray"
 assert_success "normalized render creates a valid managed stage" \
-    "$ROOT_DIR/mesh.sh" render xray --node suomi --output "$render_dir" --inventory "$ROOT_DIR/examples/inventory.2node.json"
+    "$ROOT_DIR/mesh.sh" render xray --node suomi --output "$render_dir" --inventory "$ROOT_DIR/configs/examples/inventory.2node.json"
 stage_manifest_validate "$render_dir/.mesh-manifest" || fail "normalized render creates a valid managed stage"

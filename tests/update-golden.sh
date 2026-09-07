@@ -8,15 +8,15 @@ INVENTORY="${1:?inventory path required}"
 OUT_DIR="${2:-$ROOT_DIR/tests/golden/$(basename "$INVENTORY" .json)}"
 
 # shellcheck source=../lib/common.sh
-source "$ROOT_DIR/lib/common.sh"
+source "$ROOT_DIR/bashbuild/lib/common.sh"
 # shellcheck source=../lib/inventory.sh
-source "$ROOT_DIR/lib/inventory.sh"
+source "$ROOT_DIR/bashbuild/lib/inventory.sh"
 # shellcheck source=../relay/lib/render.sh
-source "$ROOT_DIR/relay/lib/render.sh"
+source "$ROOT_DIR/bashbuild/components/relay/render_config.sh"
 # shellcheck source=../deploy/lib/xray_render.sh
-source "$ROOT_DIR/deploy/lib/xray_render.sh"
+source "$ROOT_DIR/bashbuild/components/xray/render.sh"
 # shellcheck source=../deploy/lib/hysteria_render.sh
-source "$ROOT_DIR/deploy/lib/hysteria_render.sh"
+source "$ROOT_DIR/bashbuild/components/xray/hysteria_render.sh"
 
 inv_validate "$INVENTORY"
 mkdir -p "$OUT_DIR"

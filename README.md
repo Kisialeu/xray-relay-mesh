@@ -24,16 +24,14 @@ Separately, one Caddy host serves generated subscription files. That host can op
 ## Repository layout
 
 ```text
-mesh.sh                      Interactive/operator entrypoint
-lib/                         Shared SSH, logging, and inventory helpers
-deploy/                      Xray deployment
-relay/                       HAProxy mesh deployment and rollback
-subs/                        Subscription generation and sync
-caddy/                       Caddy subscription server deployment
-stats/                       Central stats UI/API
-certs/                       AWS CDN setup and teardown
-remove-node/                 Inventory decommission helper
-examples/                    Example inventory files
+mesh.sh                      Stable launcher
+bashbuild/                   Bash framework, CLI, primitives, controllers
+services/                    Runtime service source, images, and templates
+infrastructure/              Host lifecycle and AWS/CDN provisioning
+configs/                     Local inventory, schema, examples, secrets
+tests/                       Offline unit, integration, and golden tests
+docs/                        Operational and architecture documentation
+var/                         Ignored generated runtime artifacts
 ```
 
 ## Requirements
@@ -60,10 +58,10 @@ Remote hosts:
 
 ## Inventory
 
-The default inventory path is `./inventory.json`. Example schemas live in:
+The default inventory path is `./configs/inventory.json`. Example inventories live in:
 
-- [examples/inventory.2node.json](/Users/siarhei/Sources/xray-relay-mesh/examples/inventory.2node.json)
-- [examples/inventory.3node.json](/Users/siarhei/Sources/xray-relay-mesh/examples/inventory.3node.json)
+- `configs/examples/inventory.2node.json`
+- `configs/examples/inventory.3node.json`
 
 Main sections:
 
@@ -153,7 +151,7 @@ Global options are `--inventory PATH`, `--dry-run`, `--yes`, `--non-interactive`
 To use a different inventory file with the normalized CLI:
 
 ```bash
-./mesh.sh --inventory ./examples/inventory.2node.json plan all
+./mesh.sh --inventory ./configs/examples/inventory.2node.json plan all
 ```
 
 
