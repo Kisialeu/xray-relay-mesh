@@ -12,8 +12,16 @@ subscriptions_render_stage() {
         if [ -f "${user_dir}sub.url" ]; then
             cp "${user_dir}sub.url" "$stage_dir/$token/sub.url"
         fi
+        if [ -f "${user_dir}sub.singbox.json" ]; then
+            cp "${user_dir}sub.singbox.json" "$stage_dir/$token/sub.singbox.json"
+        fi
+        if [ -f "${user_dir}sub.incy.json" ]; then
+            cp "${user_dir}sub.incy.json" "$stage_dir/$token/sub.incy.json"
+        fi
         chmod 0644 "$stage_dir/$token/sub.b64"
         [ ! -f "$stage_dir/$token/sub.url" ] || chmod 0644 "$stage_dir/$token/sub.url"
+        [ ! -f "$stage_dir/$token/sub.singbox.json" ] || chmod 0644 "$stage_dir/$token/sub.singbox.json"
+        [ ! -f "$stage_dir/$token/sub.incy.json" ] || chmod 0644 "$stage_dir/$token/sub.incy.json"
         count=$((count + 1))
     done
     [ "$count" -gt 0 ] || { error "no generated subscriptions were found"; return 1; }
@@ -25,6 +33,7 @@ subscriptions_validate_stage() {
     remote_bash "$host" "$deploy_dir/.staging/$run_id/.mesh-manifest" <<'REMOTE'
 set -euo pipefail
 count=0
+stage_dir=${1%/.mesh-manifest}
 while IFS="$(printf '\t')" read -r relative mode digest; do
     [ -n "$relative" ] || continue
     token=${relative%%/*}
@@ -34,7 +43,23 @@ while IFS="$(printf '\t')" read -r relative mode digest; do
     [ "$relative" = "$token/$filename" ] \
         || { printf 'subscription stage contains a nested path\n' >&2; exit 1; }
     case "$filename" in
-        sub.b64|sub.url) ;;
+        sub.b64|sub.url|sub.singbox.json) ;;
+        sub.incy.json)
+            jq -e '
+                type == "object"
+                and (.Name | type == "string" and length > 0 and length <= 25)
+                and .GlobalProxy == "true"
+                and .RemoteDNSType == "DoU"
+                and (.RemoteDNSIP | type == "string" and length > 0)
+                and (.DirectSites | type == "array")
+                and (.DirectIp | type == "array")
+                and (.ProxySites | type == "array")
+                and (.ProxyIp | type == "array")
+                and (.BlockSites | type == "array")
+                and (.BlockIp | type == "array")
+            ' "$stage_dir/$relative" >/dev/null \
+                || { printf 'INCY routing profile is invalid\n' >&2; exit 1; }
+            ;;
         *) printf 'subscription stage contains an unexpected managed file\n' >&2; exit 1 ;;
     esac
     [ "$mode" = 644 ] || { printf 'subscription stage contains an invalid file mode\n' >&2; exit 1; }
@@ -42,6 +67,43 @@ while IFS="$(printf '\t')" read -r relative mode digest; do
 done < "$1"
 [ "$count" -gt 0 ]
 REMOTE
+}
+
+subscriptions_verify_local() {
+    local source_dir="$1" user_dir decoded links_count=0
+    [ -d "$source_dir" ] || { error "subscription directory not found: $source_dir"; return 1; }
+    for user_dir in "$source_dir"/*/; do
+        [ -f "${user_dir}sub.b64" ] || continue
+        [ -f "${user_dir}sub.token" ] || { error "missing token in $user_dir"; return 1; }
+        [[ $(<"${user_dir}sub.token") =~ ^[0-9a-f]{40}$ ]] || { error "invalid subscription token in $user_dir"; return 1; }
+        decoded=$(mktemp)
+        if ! mesh_base64_decode < "${user_dir}sub.b64" > "$decoded"; then
+            rm -f "$decoded"
+            error "invalid base64 subscription in $user_dir"
+            return 1
+        fi
+        grep -Eq '^(vless|hysteria2)://' "$decoded" || {
+            rm -f "$decoded"
+            error "subscription contains no supported links in $user_dir"
+            return 1
+        }
+        links_count=$((links_count + $(grep -Ec '^(vless|hysteria2)://' "$decoded")))
+        rm -f "$decoded"
+        if [ -f "${user_dir}sub.incy.json" ]; then
+            jq -e '
+                type == "object" and (.Name | type == "string" and length > 0)
+                and (.GlobalProxy == "true") and (.LastUpdated | type == "string" and length > 0)
+                and (.RemoteDNSType | IN("DoH", "DoU"))
+                and (.RemoteDNSIP | type == "string" and length > 0)
+                and ([.DirectSites,.DirectIp,.ProxySites,.ProxyIp,.BlockSites,.BlockIp] | all(type == "array"))
+            ' "${user_dir}sub.incy.json" >/dev/null || {
+                error "invalid INCY routing profile in $user_dir"
+                return 1
+            }
+        fi
+    done
+    [ "$links_count" -gt 0 ] || { error "no generated subscriptions found in $source_dir"; return 1; }
+    success "local subscription verification passed ($links_count links)"
 }
 
 subscriptions_verify_caddy() {

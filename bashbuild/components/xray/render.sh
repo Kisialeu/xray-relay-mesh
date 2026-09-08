@@ -245,16 +245,29 @@ dns:
     - 0.0.0.0
   port: 53
   upstream_dns:
+    - 1.1.1.1
+    - 1.0.0.1
     - https://dns.adguard-dns.com/dns-query
     - https://dns.cloudflare.com/dns-query
-  upstream_dns_file: ""
-  bootstrap_dns:
+    - quic://dns.nextdns.io:853
+    - https://dns.nextdns.io:443
     - 94.140.14.14
     - 94.140.15.15
-  fallback_dns: []
-  all_servers: false
+    - https://dns.cloudflare.com:443/dns-query
+    - 8.8.8.8
+    - tcp://94.140.14.140
+    - tcp://unfiltered.adguard-dns.com
+    - 8.8.4.4
+  upstream_dns_file: ""
+  bootstrap_dns:
+    - 1.1.1.1
+    - 8.8.8.8
+  fallback_dns:
+    - 1.1.1.1
+  all_servers: true
   fastest_addr: true
-  cache_size: 4194304
+  cache_size: 33554432
+  cache_optimistic: true
   cache_ttl_min: 0
   cache_ttl_max: 0
   refuse_any: true
@@ -270,10 +283,7 @@ dns:
   safe_search:
     enabled: false
 filters:
-  - enabled: true
-    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
-    name: AdGuard DNS filter
-    id: 1
+
   - enabled: true
     url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt
     name: AdAway Default Blocklist
@@ -287,10 +297,6 @@ filters:
     name: AdGuard DNS Popup Hosts filter
     id: 59
   - enabled: true
-    url: https://big.oisd.nl/domainswild
-    name: OISD Big (wildcard)
-    id: 102
-  - enabled: true
     url: https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt
     name: HaGeZi Multi PRO
     id: 103
@@ -302,10 +308,16 @@ filters:
     url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
     name: StevenBlack Unified hosts
     id: 105
+
 user_rules:
   - "@@||${sni}^"
   - "@@||www.googletagmanager.com^"
   - "@@||telemetry.individual.githubcopilot.com^"
+  # These services are explicitly allowed despite the enabled blocklists.
+  - "@@||vk.com^"
+  - "@@||mail.ru^"
+  - "@@||my.mail.ru^"
+  - "@@||cloud.mail.ru^"
   - "||ad.youtube.com^"
   - "||doubleclick.net^"
   - "||googlesyndication.com^"

@@ -136,6 +136,7 @@ configs/secrets/.env
 *.b64
 *.png
 sub.*
+plan_DNS.md
 
 # Editor/IDE
  .idea/

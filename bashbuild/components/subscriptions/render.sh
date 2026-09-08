@@ -42,6 +42,74 @@ build_hysteria2_link() {
         "$(jq -rn --arg s "$fragment" '$s|@uri')"
 }
 
+build_singbox_vless_outbound() {
+    local tag="$1" uuid="$2" host="$3" port="$4" pubkey="$5" sni="$6" short_id="$7" fp="$8"
+    jq -cn --arg tag "$tag" --arg uuid "$uuid" --arg host "$host" \
+        --arg pubkey "$pubkey" --arg sni "$sni" --arg short_id "$short_id" --arg fp "$fp" \
+        --argjson port "$port" '{
+        type: "vless", tag: $tag, server: $host, server_port: $port,
+        uuid: $uuid, flow: "xtls-rprx-vision", packet_encoding: "xudp",
+        tls: {
+            enabled: true, server_name: $sni,
+            utls: {enabled: true, fingerprint: $fp},
+            reality: {enabled: true, public_key: $pubkey, short_id: $short_id}
+        }
+    }'
+}
+
+build_singbox_hysteria2_outbound() {
+    local tag="$1" email="$2" uuid="$3" host="$4" port="$5" sni="$6" obfs_password="$7"
+    jq -cn --arg tag "$tag" --arg email "$email" --arg uuid "$uuid" --arg host "$host" \
+        --arg sni "$sni" --arg obfs_password "$obfs_password" --argjson port "$port" \
+        '{type: "hysteria2", tag: $tag, server: $host, server_port: $port,
+          password: ($email + ":" + $uuid), tls: {enabled: true, server_name: $sni}}
+         | if $obfs_password == "" then . else .obfs = {type: "salamander", password: $obfs_password} end'
+}
+
+build_singbox_config() {
+    local dns1="$1" outbounds_json="$2"
+    jq -cn --arg dns1 "$dns1" --argjson real_outbounds "$outbounds_json" '
+        ($real_outbounds | map(.tag)) as $tags
+        | if ($tags | length) == 0 then error("sing-box profile has no outbounds") else
+          {
+            dns: {
+              servers: [
+                {tag: "adguard", address: $dns1, detour: "proxy"},
+                {tag: "local", type: "local"}
+              ],
+              rules: [{outbound: ["any"], action: "route", server: "adguard"}]
+            },
+            outbounds: ($real_outbounds + [{type: "selector", tag: "proxy", outbounds: $tags, default: $tags[0]}]),
+            route: {final: "proxy"}
+          }
+          end
+    '
+}
+
+build_incy_routing_profile() {
+    local dns1="$1" profile remote_dns="94.140.14.14"
+    # INCY runs on the client device. A Docker-only address such as
+    # 172.29.0.10 is not reachable from phones, so use public AdGuard DNS
+    # for the client routing profile. Server-side Xray still uses local DNS.
+    profile=$(jq -cn --arg dns1 "$remote_dns" '{
+        Name: "Xray Relay Mesh",
+        GlobalProxy: "true",
+        RemoteDNSType: "DoU",
+        RemoteDNSIP: $dns1,
+        DirectSites: [],
+        DirectIp: [],
+        ProxySites: [],
+        ProxyIp: [],
+        BlockSites: [],
+        BlockIp: [],
+        DomainStrategy: "IPIfNonMatch"
+    }')
+    # INCY treats LastUpdated as a profile version. Deriving it from the
+    # canonical routing content prevents refresh churn on no-op generation.
+    jq -c --arg version "$(printf '%s' "$profile" | sha256sum | awk '{print $1}')" \
+        '. + {LastUpdated: $version}' <<< "$profile"
+}
+
 user_hidden_on_node() {
     local file="$1" node_name="$2" email="$3"
     jq -r --arg email "$email" '
@@ -115,24 +183,61 @@ build_all_links() {
     done < <(jq -r '.xray.users[] | "\(.uuid)\t\(.email)"' "$file")
 }
 
+build_all_singbox_outbounds() {
+    local file="$1"
+    local pubkey sni short_id fp
+    pubkey=$(inv_xray_public_key "$file")
+    sni=$(inv_xray_sni "$file")
+    short_id=$(inv_xray_short_id "$file")
+    fp="${LINK_FP:-firefox}"
+    [ -n "$pubkey" ] || { error "xray.reality.public_key is empty in inventory"; return 1; }
+
+    local hysteria_node_names hysteria_obfs_password
+    hysteria_node_names=$(inv_hysteria_node_names "$file")
+    hysteria_obfs_password=$(inv_hysteria_obfs_password "$file")
+    local direct_nodes relay_pairs
+    direct_nodes=$(jq -r '.nodes[] | [.name, .host, .direct_port, (.friendly_name // .name), (.tls_domain // "")] | @tsv' "$file")
+    relay_pairs=$(build_relay_pairs "$file")
+
+    while IFS=$'\t' read -r uuid email; do
+        [ -z "$uuid" ] && continue
+        while IFS=$'\t' read -r name host port display_name tls_domain; do
+            [ -z "$name" ] && continue
+            user_hidden_on_node "$file" "$name" "$email" && continue
+            printf '%s\t%s\n' "$email" "$(build_singbox_vless_outbound "vless-${name}" "$uuid" "$host" "$port" "$pubkey" "$sni" "$short_id" "$fp")"
+            if [ -n "$tls_domain" ] && grep -Fxq "$name" <<< "$hysteria_node_names"; then
+                printf '%s\t%s\n' "$email" "$(build_singbox_hysteria2_outbound "hysteria-${name}" "$email" "$uuid" "$host" "$port" "$tls_domain" "$hysteria_obfs_password")"
+            fi
+        done <<< "$direct_nodes"
+        while IFS=$'\t' read -r entry_name entry_host peer_name relay_port; do
+            [ -z "$entry_name" ] && continue
+            user_hidden_on_node "$file" "$entry_name" "$email" && continue
+            user_hidden_on_node "$file" "$peer_name" "$email" && continue
+            printf '%s\t%s\n' "$email" "$(build_singbox_vless_outbound "vless-${peer_name}-via-${entry_name}" "$uuid" "$entry_host" "$relay_port" "$pubkey" "$sni" "$short_id" "$fp")"
+        done <<< "$relay_pairs"
+    done < <(jq -r '.xray.users[] | "\(.uuid)\t\(.email)"' "$file")
+}
+
 # Writes per-user subscription files into $sub_dir, in the same format the
 # existing Caddy pipeline already serves (sub.b64, sub.url, sub.qr.png) and
 # the old deploy.sh already produced. $all_links is "email<TAB>link" lines
 # (from build_all_links). Safe to re-run - overwrites only, no leftover state.
 write_subscription_files() {
-    local sub_dir="$1" sub_secret="$2" sub_domain="$3" all_links="$4"
-    local email links_raw links_b64 token user_dir tmp count
+    local sub_dir="$1" sub_secret="$2" sub_domain="$3" all_links="$4" all_singbox_outbounds="$5" dns1="$6"
+    local email links_raw links_b64 singbox_json incy_json token user_dir tmp count
 
     mkdir -p "$sub_dir"
 
     while IFS= read -r email; do
         [ -z "$email" ] && continue
         links_raw=$(printf '%s\n' "$all_links" | awk -F'\t' -v e="$email" '$1==e {print $2}')
+        singbox_json=$(printf '%s\n' "$all_singbox_outbounds" | awk -F'\t' -v e="$email" '$1==e {print $2}' | jq -s '.')
+        incy_json=$(build_incy_routing_profile "$dns1")
         token=$(printf '%s:%s' "$email" "$sub_secret" | sha256sum | awk '{print $1}' | cut -c1-40)
         user_dir="$sub_dir/$email"
         mkdir -p "$user_dir"
 
-        links_b64=$(printf '%s' "$links_raw" | base64 -w 0)
+        links_b64=$(printf '%s' "$links_raw" | mesh_base64_noline)
 
         printf '%s\n' "$token" > "${user_dir}/sub.token"
 
@@ -145,6 +250,14 @@ write_subscription_files() {
         mv -f "$tmp" "${user_dir}/sub.links"
 
         printf 'https://%s/%s\n' "$sub_domain" "$token" > "${user_dir}/sub.url"
+
+        tmp="${user_dir}/sub.singbox.json.tmp"
+        build_singbox_config "$dns1" "$singbox_json" > "$tmp"
+        mv -f "$tmp" "${user_dir}/sub.singbox.json"
+
+        tmp="${user_dir}/sub.incy.json.tmp"
+        printf '%s\n' "$incy_json" > "$tmp"
+        mv -f "$tmp" "${user_dir}/sub.incy.json"
 
         if command -v qrencode >/dev/null 2>&1; then
             qrencode -s 8 -m 2 -l H -o "${user_dir}/sub.qr.png" "https://${sub_domain}/${token}" 2>/dev/null \

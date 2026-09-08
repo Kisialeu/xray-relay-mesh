@@ -18,6 +18,14 @@ services:
     environment:
       - ORIGIN_VERIFY_SECRET
       - SUB_DOMAIN
+      - SUB_PROFILE_TITLE
+      - SUB_PROFILE_DESCRIPTION
+      - SUB_SUPPORT_URL
+      - SUB_SUPPORT_EMAIL
+      - SUB_PROFILE_UPDATE_INTERVAL
+      - SUB_APP_PROXY_ENABLE
+      - SUB_APP_PROXY_MODE
+      - SUB_APP_PROXY_PACKAGES
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 30s

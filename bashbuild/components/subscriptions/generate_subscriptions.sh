@@ -65,6 +65,9 @@ if [ -z "$ALL_LINKS" ]; then
     exit 1
 fi
 
-write_subscription_files "$SUB_DIR" "$SUB_SECRET" "$SUB_DOMAIN" "$ALL_LINKS"
+ALL_SINGBOX_OUTBOUNDS="$(build_all_singbox_outbounds "$INVENTORY")" || exit 1
+[ -n "$ALL_SINGBOX_OUTBOUNDS" ] || { error "no sing-box outbounds generated"; exit 1; }
+write_subscription_files "$SUB_DIR" "$SUB_SECRET" "$SUB_DOMAIN" "$ALL_LINKS" \
+    "$ALL_SINGBOX_OUTBOUNDS" "$(inv_xray_dns1 "$INVENTORY")"
 
 info "Files written to $SUB_DIR. Run subs/sync_subscriptions.sh to push them to Caddy."

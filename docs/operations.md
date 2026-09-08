@@ -17,6 +17,7 @@
 | `./mesh.sh cdn apply` | AWS and remote | State-changing, billable | Creates or updates AWS resources and firewall rules. |
 | `./mesh.sh cdn destroy` | AWS and remote | Destructive | Deletes AWS resources and reverses managed firewall changes. |
 | `./mesh.sh network` | Local | Read-only | Derives required inbound ports and Route53 records from the current inventory. |
+| `./mesh.sh adguard ui --node NAME` | Remote tunnel | Read-only | Opens a local SSH tunnel to the selected node's AdGuard Home UI and launches the browser. |
 
 There are no legacy command aliases. The certificate scripts are state-changing and must not be used as plan operations.
 

@@ -37,9 +37,97 @@
     respond @bad_origin 403
 
     # ---- subscription endpoint: /<token> ----
+    @incy_routing {
+        path_regexp routing_path ^/([0-9a-f]{40})/sub\.incy\.json$
+        header_regexp ua User-Agent (?i)INCY/
+    }
+
+    handle @incy_routing {
+        root * /srv/subs
+        rewrite /{re.routing_path.1}/sub.incy.json
+
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        header X-Content-Type-Options "nosniff"
+        header Content-Type "application/json; charset=utf-8"
+
+        file_server
+    }
+
+    @incy_request {
+        path_regexp sub_token ^/([0-9a-f]{40})$
+        header_regexp ua User-Agent (?i)INCY/
+    }
+
+    handle @incy_request {
+        root * /srv/subs
+        rewrite /{re.sub_token.1}/sub.b64
+
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        header X-Content-Type-Options "nosniff"
+        header Content-Type "text/plain; charset=utf-8"
+        header autorouting "incy://autorouting/onadd/https://{$SUB_DOMAIN}/{re.sub_token.1}/sub.incy.json"
+        header profile-title "{$SUB_PROFILE_TITLE}"
+        header profile-description "{$SUB_PROFILE_DESCRIPTION}"
+        header support-url "{$SUB_SUPPORT_URL}"
+        header support-email "{$SUB_SUPPORT_EMAIL}"
+        header per-app-proxy-enable "{$SUB_APP_PROXY_ENABLE}"
+        header per-app-proxy-mode "{$SUB_APP_PROXY_MODE}"
+        header per-app-proxy-list "{$SUB_APP_PROXY_PACKAGES}"
+        header profile-update-interval "1"
+        header sort-order "ping"
+        header subscription-userinfo "0"
+        header content-disposition "inline; filename=\"xray-relay-mesh.txt\""
+
+        file_server
+    }
+
+    @incy_client_request {
+        path_regexp sub_token_client ^/([0-9a-f]{40})$
+        header_regexp client X-Client (?i)^INCY$
+    }
+
+    handle @incy_client_request {
+        root * /srv/subs
+        rewrite /{re.sub_token_client.1}/sub.b64
+
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        header X-Content-Type-Options "nosniff"
+        header Content-Type "text/plain; charset=utf-8"
+        header autorouting "incy://autorouting/onadd/https://{$SUB_DOMAIN}/{re.sub_token_client.1}/sub.incy.json"
+        header profile-title "{$SUB_PROFILE_TITLE}"
+        header profile-description "{$SUB_PROFILE_DESCRIPTION}"
+        header support-url "{$SUB_SUPPORT_URL}"
+        header support-email "{$SUB_SUPPORT_EMAIL}"
+        header per-app-proxy-enable "{$SUB_APP_PROXY_ENABLE}"
+        header per-app-proxy-mode "{$SUB_APP_PROXY_MODE}"
+        header per-app-proxy-list "{$SUB_APP_PROXY_PACKAGES}"
+        header profile-update-interval "{$SUB_PROFILE_UPDATE_INTERVAL}"
+        header sort-order "ping"
+        header subscription-userinfo "0"
+        header content-disposition "inline; filename=\"xray-relay-mesh.txt\""
+
+        file_server
+    }
+
+    @singbox_request {
+        path_regexp sub_token ^/([0-9a-f]{40})$
+        header_regexp ua User-Agent (?i)(sing-box|nekoray|nekobox|karing)
+    }
+
+    handle @singbox_request {
+        root * /srv/subs
+        rewrite /{re.sub_token.1}/sub.singbox.json
+
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        header X-Content-Type-Options "nosniff"
+        header Content-Type "application/json; charset=utf-8"
+
+        file_server
+    }
+
     @sub_request {
         path_regexp sub_token ^/([0-9a-f]{40})$
-        header_regexp ua User-Agent (v2rayTun|v2rayNG|Hiddify|clash|mihomo|sing-box|nekoray|streisand|Shadowrocket|Quantumult|Stash|INCY)
+        header_regexp ua User-Agent (v2rayTun|v2rayNG|Hiddify|clash|mihomo|streisand|Shadowrocket|Quantumult|Stash)
     }
 
     handle @sub_request {

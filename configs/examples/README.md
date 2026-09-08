@@ -66,6 +66,10 @@ Then edit `inventory.json` and replace the example values.
 - `ssh_user`: SSH user for the Caddy host
 - `ssh_key`: SSH private key path for the Caddy host
 - `sub_secret`: secret used to build private subscription URLs
+- Optional INCY metadata: `profile_title`, `profile_description`, `support_url`,
+  `support_email`, and `profile_update_interval` under `subs`.
+- Optional INCY application routing: `app_proxy.enable`, `app_proxy.mode`, and
+  `app_proxy.packages`. Disabled by default.
 - `origin_verify_secret`: secret header value used between CloudFront and Caddy
 
 `hysteria`

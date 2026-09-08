@@ -17,6 +17,8 @@ source "$ROOT_DIR/bashbuild/lib/stage.sh"
 source "$ROOT_DIR/bashbuild/components/caddy/stage.sh"
 # shellcheck source=../bashbuild/components/subscriptions/sync.sh
 source "$ROOT_DIR/bashbuild/components/subscriptions/sync.sh"
+# shellcheck source=../bashbuild/components/subscriptions/render.sh
+source "$ROOT_DIR/bashbuild/components/subscriptions/render.sh"
 
 pass_count=0
 
@@ -66,7 +68,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..31\n'
+printf '1..42\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -202,6 +204,8 @@ mkdir -p "$generated_dir/user"
 printf '%s\n' "$token" > "$generated_dir/user/sub.token"
 printf 'encoded\n' > "$generated_dir/user/sub.b64"
 printf 'https://sub.example.test/%s\n' "$token" > "$generated_dir/user/sub.url"
+printf '{"type":"vless","tag":"vless-fixture"}\n' > "$generated_dir/user/sub.singbox.json"
+printf '{"Name":"Xray Relay Mesh","RemoteDNSType":"DoU","RemoteDNSIP":"172.29.0.10"}\n' > "$generated_dir/user/sub.incy.json"
 printf 'private-link\n' > "$generated_dir/user/sub.links"
 subscriptions_stage=""
 stage_create subscriptions_stage subscriptions
@@ -209,11 +213,49 @@ subscriptions_render_stage "$generated_dir" "$subscriptions_stage"
 stage_manifest_validate "$subscriptions_stage/.mesh-manifest" \
     || fail "subscription sync stages an explicit public-file manifest"
 [ -f "$subscriptions_stage/$token/sub.b64" ] \
+    && [ -f "$subscriptions_stage/$token/sub.singbox.json" ] \
+    && [ -f "$subscriptions_stage/$token/sub.incy.json" ] \
     && [ ! -e "$subscriptions_stage/$token/sub.links" ] \
     && [ ! -e "$subscriptions_stage/$token/sub.token" ] \
     || fail "subscription sync stages an explicit public-file manifest"
 pass "subscription sync stages an explicit public-file manifest"
 stage_cleanup
+
+singbox_vless=$(build_singbox_vless_outbound fixture-vless fixture-uuid 198.51.100.10 443 fixture-pubkey dl.google.com 0123456789abcdef firefox)
+singbox_hysteria=$(build_singbox_hysteria2_outbound fixture-hysteria user@example.test fixture-uuid 198.51.100.10 443 hy.example.test fixture-obfs)
+singbox_config=$(build_singbox_config 172.29.0.10 "[$singbox_vless,$singbox_hysteria]")
+printf '%s\n' "$singbox_config" | jq -e '
+    .dns.servers[0].address == "172.29.0.10"
+    and .dns.servers[0].detour == "proxy"
+    and .dns.rules[0].action == "route"
+    and .dns.rules[0].server == "adguard"
+    and (.outbounds | map(.tag) | index("proxy")) != null
+    and (.outbounds[] | select(.tag == "fixture-vless") | .packet_encoding == "xudp")
+    and (.outbounds[] | select(.tag == "fixture-hysteria") | .password == "user@example.test:fixture-uuid")
+    and (.outbounds[] | select(.tag == "fixture-hysteria") | .obfs.type == "salamander")
+    and .route.final == "proxy"
+' >/dev/null || fail "sing-box profile contains proxy DNS and client outbounds"
+pass "sing-box profile contains proxy DNS and client outbounds"
+
+grep -n '@singbox_request' "$ROOT_DIR/services/caddy/Caddyfile" | cut -d: -f1 | {
+    read -r singbox_line
+    sub_line=$(grep -n '@sub_request' "$ROOT_DIR/services/caddy/Caddyfile" | head -n1 | cut -d: -f1)
+    [ "$singbox_line" -lt "$sub_line" ]
+} || fail "Caddy routes sing-box clients before legacy subscriptions"
+pass "Caddy routes sing-box clients before legacy subscriptions"
+
+grep -F 'sub.singbox.json' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    || fail "Caddy serves the sing-box JSON subscription"
+pass "Caddy serves the sing-box JSON subscription"
+
+incy_routing=$(build_incy_routing_profile 172.29.0.10)
+printf '%s\n' "$incy_routing" | jq -e '.GlobalProxy == "true" and .RemoteDNSType == "DoU" and .RemoteDNSIP == "94.140.14.14" and (.BlockSites | length) == 0' >/dev/null \
+    || fail "INCY autorouting profile uses mobile-compatible public DNS"
+pass "INCY autorouting profile uses mobile-compatible public DNS"
+
+grep -F 'header autorouting "incy://autorouting/onadd/https://{$SUB_DOMAIN}' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    || fail "Caddy advertises the INCY autorouting profile"
+pass "Caddy advertises the INCY autorouting profile"
 
 grep -F 'docker run --rm --network none' "$ROOT_DIR/bashbuild/components/xray/verify.sh" >/dev/null \
     || fail "Xray staged validation does not create a Docker network"
@@ -232,3 +274,31 @@ if rg -n 'success .*sub_domain.*token|success .*https://.*\$token' \
     fail "subscription generation does not log tokenized URLs"
 fi
 pass "subscription generation does not log tokenized URLs"
+
+assert_failure "AdGuard UI command requires a node" \
+    "$ROOT_DIR/mesh.sh" adguard ui --inventory "$ROOT_DIR/configs/examples/inventory.2node.json"
+grep -F '127.0.0.1:${LOCAL_PORT}:127.0.0.1:3000' \
+    "$ROOT_DIR/infrastructure/host/adguard_ui.sh" >/dev/null \
+    || fail "AdGuard UI tunnel forwards the remote loopback port"
+pass "AdGuard UI tunnel forwards the remote loopback port"
+
+[ "$(printf 'hello' | mesh_base64_noline)" = "aGVsbG8=" ] \
+    || fail "base64 helper emits portable newline-free output"
+pass "base64 helper emits portable newline-free output"
+
+grep -E 'header profile-update-interval "(24|\{\$SUB_PROFILE_UPDATE_INTERVAL\})"' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    && grep -F 'header subscription-userinfo "0"' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    && grep -F 'header_regexp client X-Client (?i)^INCY$' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    || fail "Caddy exposes INCY metadata and x-client fallback"
+pass "Caddy exposes INCY metadata and x-client fallback"
+
+grep -F '4) Verify generated subscriptions' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
+    && grep -F 'mesh_ui_exec subscription verify' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
+    || fail "interactive subscriptions menu exposes local verification"
+pass "interactive subscriptions menu exposes local verification"
+
+for allowed_domain in '"@@||vk.com^"' '"@@||mail.ru^"'; do
+    grep -F -- "- $allowed_domain" "$ROOT_DIR/tests/golden/inventory.2node/suomi/adguard.yaml" >/dev/null \
+        || fail "AdGuard allowlist includes $allowed_domain"
+done
+pass "AdGuard allowlist includes VK and Mail.ru"
