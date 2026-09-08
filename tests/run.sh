@@ -68,7 +68,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..40\n'
+printf '1..41\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -291,3 +291,8 @@ grep -E 'header profile-update-interval "(24|\{\$SUB_PROFILE_UPDATE_INTERVAL\})"
     && grep -F 'header_regexp client X-Client (?i)^INCY$' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
     || fail "Caddy exposes INCY metadata and x-client fallback"
 pass "Caddy exposes INCY metadata and x-client fallback"
+
+grep -F '4) Verify generated subscriptions' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
+    && grep -F 'mesh_ui_exec subscription verify' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
+    || fail "interactive subscriptions menu exposes local verification"
+pass "interactive subscriptions menu exposes local verification"

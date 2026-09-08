@@ -107,12 +107,14 @@ mesh_ui_delivery_menu() {
         printf '  1) Generate and sync subscriptions\n'
         printf '  2) Deploy Caddy\n'
         printf '  3) Plan subscriptions and Caddy\n'
+        printf '  4) Verify generated subscriptions\n'
         printf '  b) Back\n'
         read -r -p 'Choose an option: ' choice || return 0
         case "$choice" in
             1) mesh_ui_exec deploy subscriptions; mesh_ui_pause ;;
             2) mesh_ui_exec deploy caddy; mesh_ui_pause ;;
             3) mesh_ui_exec plan subscriptions; mesh_ui_exec plan caddy; mesh_ui_pause ;;
+            4) mesh_ui_exec subscription verify; mesh_ui_pause ;;
             b|B) return 0 ;;
             q|Q|0) exit 0 ;;
             *) error "invalid option: $choice" ;;
