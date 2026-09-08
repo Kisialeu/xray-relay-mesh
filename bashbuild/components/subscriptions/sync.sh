@@ -15,9 +15,13 @@ subscriptions_render_stage() {
         if [ -f "${user_dir}sub.singbox.json" ]; then
             cp "${user_dir}sub.singbox.json" "$stage_dir/$token/sub.singbox.json"
         fi
+        if [ -f "${user_dir}sub.incy.json" ]; then
+            cp "${user_dir}sub.incy.json" "$stage_dir/$token/sub.incy.json"
+        fi
         chmod 0644 "$stage_dir/$token/sub.b64"
         [ ! -f "$stage_dir/$token/sub.url" ] || chmod 0644 "$stage_dir/$token/sub.url"
         [ ! -f "$stage_dir/$token/sub.singbox.json" ] || chmod 0644 "$stage_dir/$token/sub.singbox.json"
+        [ ! -f "$stage_dir/$token/sub.incy.json" ] || chmod 0644 "$stage_dir/$token/sub.incy.json"
         count=$((count + 1))
     done
     [ "$count" -gt 0 ] || { error "no generated subscriptions were found"; return 1; }
@@ -38,7 +42,7 @@ while IFS="$(printf '\t')" read -r relative mode digest; do
     [ "$relative" = "$token/$filename" ] \
         || { printf 'subscription stage contains a nested path\n' >&2; exit 1; }
     case "$filename" in
-        sub.b64|sub.url|sub.singbox.json) ;;
+        sub.b64|sub.url|sub.singbox.json|sub.incy.json) ;;
         *) printf 'subscription stage contains an unexpected managed file\n' >&2; exit 1 ;;
     esac
     [ "$mode" = 644 ] || { printf 'subscription stage contains an invalid file mode\n' >&2; exit 1; }

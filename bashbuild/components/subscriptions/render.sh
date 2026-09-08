@@ -86,6 +86,24 @@ build_singbox_config() {
     '
 }
 
+build_incy_routing_profile() {
+    local dns1="$1"
+    jq -cn --arg dns1 "$dns1" --arg updated "$(date +%s)" '{
+        Name: "Xray Relay Mesh",
+        GlobalProxy: "true",
+        LastUpdated: $updated,
+        RemoteDNSType: "DoU",
+        RemoteDNSIP: $dns1,
+        DirectSites: [],
+        DirectIp: [],
+        ProxySites: [],
+        ProxyIp: [],
+        BlockSites: ["geosite:category-ads-all"],
+        BlockIp: [],
+        DomainStrategy: "IPIfNonMatch"
+    }'
+}
+
 user_hidden_on_node() {
     local file="$1" node_name="$2" email="$3"
     jq -r --arg email "$email" '
@@ -194,13 +212,41 @@ build_all_singbox_outbounds() {
     done < <(jq -r '.xray.users[] | "\(.uuid)\t\(.email)"' "$file")
 }
 
+build_all_incy_configs() {
+    local file="$1" dns1="$2" pubkey sni short_id fp outbound
+    pubkey=$(inv_xray_public_key "$file")
+    sni=$(inv_xray_sni "$file")
+    short_id=$(inv_xray_short_id "$file")
+    fp="${LINK_FP:-firefox}"
+    [ -n "$pubkey" ] || { error "xray.reality.public_key is empty in inventory"; return 1; }
+    local direct_nodes relay_pairs
+    direct_nodes=$(jq -r '.nodes[] | [.name, .host, .direct_port] | @tsv' "$file")
+    relay_pairs=$(build_relay_pairs "$file")
+    while IFS=$'\t' read -r uuid email; do
+        [ -z "$uuid" ] && continue
+        while IFS=$'\t' read -r name host port; do
+            [ -z "$name" ] && continue
+            user_hidden_on_node "$file" "$name" "$email" && continue
+            outbound=$(build_incy_vless_outbound "$uuid" "$host" "$port" "$pubkey" "$sni" "$short_id" "$fp")
+            printf '%s\t%s\n' "$email" "$(build_incy_config "$dns1" "$outbound")"
+        done <<< "$direct_nodes"
+        while IFS=$'\t' read -r entry_name entry_host peer_name relay_port; do
+            [ -z "$entry_name" ] && continue
+            user_hidden_on_node "$file" "$entry_name" "$email" && continue
+            user_hidden_on_node "$file" "$peer_name" "$email" && continue
+            outbound=$(build_incy_vless_outbound "$uuid" "$entry_host" "$relay_port" "$pubkey" "$sni" "$short_id" "$fp")
+            printf '%s\t%s\n' "$email" "$(build_incy_config "$dns1" "$outbound")"
+        done <<< "$relay_pairs"
+    done < <(jq -r '.xray.users[] | "\(.uuid)\t\(.email)"' "$file")
+}
+
 # Writes per-user subscription files into $sub_dir, in the same format the
 # existing Caddy pipeline already serves (sub.b64, sub.url, sub.qr.png) and
 # the old deploy.sh already produced. $all_links is "email<TAB>link" lines
 # (from build_all_links). Safe to re-run - overwrites only, no leftover state.
 write_subscription_files() {
     local sub_dir="$1" sub_secret="$2" sub_domain="$3" all_links="$4" all_singbox_outbounds="$5" dns1="$6"
-    local email links_raw links_b64 singbox_json token user_dir tmp count
+    local email links_raw links_b64 singbox_json incy_json token user_dir tmp count
 
     mkdir -p "$sub_dir"
 
@@ -208,6 +254,7 @@ write_subscription_files() {
         [ -z "$email" ] && continue
         links_raw=$(printf '%s\n' "$all_links" | awk -F'\t' -v e="$email" '$1==e {print $2}')
         singbox_json=$(printf '%s\n' "$all_singbox_outbounds" | awk -F'\t' -v e="$email" '$1==e {print $2}' | jq -s '.')
+        incy_json=$(build_incy_routing_profile "$dns1")
         token=$(printf '%s:%s' "$email" "$sub_secret" | sha256sum | awk '{print $1}' | cut -c1-40)
         user_dir="$sub_dir/$email"
         mkdir -p "$user_dir"
@@ -229,6 +276,10 @@ write_subscription_files() {
         tmp="${user_dir}/sub.singbox.json.tmp"
         build_singbox_config "$dns1" "$singbox_json" > "$tmp"
         mv -f "$tmp" "${user_dir}/sub.singbox.json"
+
+        tmp="${user_dir}/sub.incy.json.tmp"
+        printf '%s\n' "$incy_json" > "$tmp"
+        mv -f "$tmp" "${user_dir}/sub.incy.json"
 
         if command -v qrencode >/dev/null 2>&1; then
             qrencode -s 8 -m 2 -l H -o "${user_dir}/sub.qr.png" "https://${sub_domain}/${token}" 2>/dev/null \
