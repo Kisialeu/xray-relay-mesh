@@ -286,7 +286,7 @@ pass "AdGuard UI tunnel forwards the remote loopback port"
     || fail "base64 helper emits portable newline-free output"
 pass "base64 helper emits portable newline-free output"
 
-grep -F 'header profile-update-interval "24"' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+grep -E 'header profile-update-interval "(24|\{\$SUB_PROFILE_UPDATE_INTERVAL\})"' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
     && grep -F 'header subscription-userinfo "0"' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
     && grep -F 'header_regexp client X-Client (?i)^INCY$' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
     || fail "Caddy exposes INCY metadata and x-client fallback"
