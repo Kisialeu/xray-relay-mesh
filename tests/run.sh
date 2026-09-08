@@ -68,7 +68,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..38\n'
+printf '1..40\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -281,3 +281,13 @@ grep -F '127.0.0.1:${LOCAL_PORT}:127.0.0.1:3000' \
     "$ROOT_DIR/infrastructure/host/adguard_ui.sh" >/dev/null \
     || fail "AdGuard UI tunnel forwards the remote loopback port"
 pass "AdGuard UI tunnel forwards the remote loopback port"
+
+[ "$(printf 'hello' | mesh_base64_noline)" = "aGVsbG8=" ] \
+    || fail "base64 helper emits portable newline-free output"
+pass "base64 helper emits portable newline-free output"
+
+grep -F 'header profile-update-interval "24"' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    && grep -F 'header subscription-userinfo "0"' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    && grep -F 'header_regexp client X-Client (?i)^INCY$' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    || fail "Caddy exposes INCY metadata and x-client fallback"
+pass "Caddy exposes INCY metadata and x-client fallback"

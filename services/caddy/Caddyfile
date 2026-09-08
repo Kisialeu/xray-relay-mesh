@@ -66,6 +66,33 @@
         header X-Content-Type-Options "nosniff"
         header Content-Type "text/plain; charset=utf-8"
         header autorouting "incy://autorouting/onadd/https://{$SUB_DOMAIN}/{re.sub_token.1}/sub.incy.json"
+        header profile-title "Xray Relay Mesh"
+        header profile-update-interval "24"
+        header sort-order "ping"
+        header subscription-userinfo "0"
+        header content-disposition "inline; filename=\"xray-relay-mesh.txt\""
+
+        file_server
+    }
+
+    @incy_client_request {
+        path_regexp sub_token_client ^/([0-9a-f]{40})$
+        header_regexp client X-Client (?i)^INCY$
+    }
+
+    handle @incy_client_request {
+        root * /srv/subs
+        rewrite /{re.sub_token_client.1}/sub.b64
+
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        header X-Content-Type-Options "nosniff"
+        header Content-Type "text/plain; charset=utf-8"
+        header autorouting "incy://autorouting/onadd/https://{$SUB_DOMAIN}/{re.sub_token_client.1}/sub.incy.json"
+        header profile-title "Xray Relay Mesh"
+        header profile-update-interval "24"
+        header sort-order "ping"
+        header subscription-userinfo "0"
+        header content-disposition "inline; filename=\"xray-relay-mesh.txt\""
 
         file_server
     }

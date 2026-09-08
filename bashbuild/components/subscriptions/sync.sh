@@ -33,6 +33,7 @@ subscriptions_validate_stage() {
     remote_bash "$host" "$deploy_dir/.staging/$run_id/.mesh-manifest" <<'REMOTE'
 set -euo pipefail
 count=0
+stage_dir=${1%/.mesh-manifest}
 while IFS="$(printf '\t')" read -r relative mode digest; do
     [ -n "$relative" ] || continue
     token=${relative%%/*}
@@ -42,7 +43,23 @@ while IFS="$(printf '\t')" read -r relative mode digest; do
     [ "$relative" = "$token/$filename" ] \
         || { printf 'subscription stage contains a nested path\n' >&2; exit 1; }
     case "$filename" in
-        sub.b64|sub.url|sub.singbox.json|sub.incy.json) ;;
+        sub.b64|sub.url|sub.singbox.json) ;;
+        sub.incy.json)
+            jq -e '
+                type == "object"
+                and (.Name | type == "string" and length > 0 and length <= 25)
+                and .GlobalProxy == "true"
+                and .RemoteDNSType == "DoU"
+                and (.RemoteDNSIP | type == "string" and length > 0)
+                and (.DirectSites | type == "array")
+                and (.DirectIp | type == "array")
+                and (.ProxySites | type == "array")
+                and (.ProxyIp | type == "array")
+                and (.BlockSites | type == "array")
+                and (.BlockIp | type == "array")
+            ' "$stage_dir/$relative" >/dev/null \
+                || { printf 'INCY routing profile is invalid\n' >&2; exit 1; }
+            ;;
         *) printf 'subscription stage contains an unexpected managed file\n' >&2; exit 1 ;;
     esac
     [ "$mode" = 644 ] || { printf 'subscription stage contains an invalid file mode\n' >&2; exit 1; }

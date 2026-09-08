@@ -212,34 +212,6 @@ build_all_singbox_outbounds() {
     done < <(jq -r '.xray.users[] | "\(.uuid)\t\(.email)"' "$file")
 }
 
-build_all_incy_configs() {
-    local file="$1" dns1="$2" pubkey sni short_id fp outbound
-    pubkey=$(inv_xray_public_key "$file")
-    sni=$(inv_xray_sni "$file")
-    short_id=$(inv_xray_short_id "$file")
-    fp="${LINK_FP:-firefox}"
-    [ -n "$pubkey" ] || { error "xray.reality.public_key is empty in inventory"; return 1; }
-    local direct_nodes relay_pairs
-    direct_nodes=$(jq -r '.nodes[] | [.name, .host, .direct_port] | @tsv' "$file")
-    relay_pairs=$(build_relay_pairs "$file")
-    while IFS=$'\t' read -r uuid email; do
-        [ -z "$uuid" ] && continue
-        while IFS=$'\t' read -r name host port; do
-            [ -z "$name" ] && continue
-            user_hidden_on_node "$file" "$name" "$email" && continue
-            outbound=$(build_incy_vless_outbound "$uuid" "$host" "$port" "$pubkey" "$sni" "$short_id" "$fp")
-            printf '%s\t%s\n' "$email" "$(build_incy_config "$dns1" "$outbound")"
-        done <<< "$direct_nodes"
-        while IFS=$'\t' read -r entry_name entry_host peer_name relay_port; do
-            [ -z "$entry_name" ] && continue
-            user_hidden_on_node "$file" "$entry_name" "$email" && continue
-            user_hidden_on_node "$file" "$peer_name" "$email" && continue
-            outbound=$(build_incy_vless_outbound "$uuid" "$entry_host" "$relay_port" "$pubkey" "$sni" "$short_id" "$fp")
-            printf '%s\t%s\n' "$email" "$(build_incy_config "$dns1" "$outbound")"
-        done <<< "$relay_pairs"
-    done < <(jq -r '.xray.users[] | "\(.uuid)\t\(.email)"' "$file")
-}
-
 # Writes per-user subscription files into $sub_dir, in the same format the
 # existing Caddy pipeline already serves (sub.b64, sub.url, sub.qr.png) and
 # the old deploy.sh already produced. $all_links is "email<TAB>link" lines
@@ -259,7 +231,7 @@ write_subscription_files() {
         user_dir="$sub_dir/$email"
         mkdir -p "$user_dir"
 
-        links_b64=$(printf '%s' "$links_raw" | base64 -w 0)
+        links_b64=$(printf '%s' "$links_raw" | mesh_base64_noline)
 
         printf '%s\n' "$token" > "${user_dir}/sub.token"
 
