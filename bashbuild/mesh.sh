@@ -31,6 +31,7 @@ Usage:
   ./mesh.sh network
   ./mesh.sh stats tunnel
   ./mesh.sh adguard ui --node NAME
+  ./mesh.sh subscription verify
 
 Global options:
   --inventory PATH  --dry-run  --yes  --non-interactive
@@ -124,6 +125,11 @@ case "$MESH_CLI_COMMAND" in
             || { error "usage: mesh.sh adguard ui --node NAME"; exit 1; }
         mesh_require_node
         "$MESH_DIR/infrastructure/host/adguard_ui.sh" "$MESH_CLI_NODE" "$INVENTORY"
+        ;;
+    subscription|subscriptions)
+        [ "${#MESH_CLI_POSITIONAL[@]}" -eq 1 ] && [ "${MESH_CLI_POSITIONAL[0]}" = verify ] \
+            || { error "usage: mesh.sh subscription verify"; exit 1; }
+        mesh_command_subscription_verify "$INVENTORY"
         ;;
     network)
         [ "${#MESH_CLI_POSITIONAL[@]}" -eq 0 ] || { error "usage: mesh.sh network"; exit 1; }

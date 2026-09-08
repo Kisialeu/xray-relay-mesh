@@ -69,6 +69,43 @@ done < "$1"
 REMOTE
 }
 
+subscriptions_verify_local() {
+    local source_dir="$1" user_dir decoded links_count=0
+    [ -d "$source_dir" ] || { error "subscription directory not found: $source_dir"; return 1; }
+    for user_dir in "$source_dir"/*/; do
+        [ -f "${user_dir}sub.b64" ] || continue
+        [ -f "${user_dir}sub.token" ] || { error "missing token in $user_dir"; return 1; }
+        [[ $(<"${user_dir}sub.token") =~ ^[0-9a-f]{40}$ ]] || { error "invalid subscription token in $user_dir"; return 1; }
+        decoded=$(mktemp)
+        if ! mesh_base64_decode < "${user_dir}sub.b64" > "$decoded"; then
+            rm -f "$decoded"
+            error "invalid base64 subscription in $user_dir"
+            return 1
+        fi
+        grep -Eq '^(vless|hysteria2)://' "$decoded" || {
+            rm -f "$decoded"
+            error "subscription contains no supported links in $user_dir"
+            return 1
+        }
+        links_count=$((links_count + $(grep -Ec '^(vless|hysteria2)://' "$decoded")))
+        rm -f "$decoded"
+        if [ -f "${user_dir}sub.incy.json" ]; then
+            jq -e '
+                type == "object" and (.Name | type == "string" and length > 0)
+                and (.GlobalProxy == "true") and (.LastUpdated | type == "string" and length > 0)
+                and (.RemoteDNSType | IN("DoH", "DoU"))
+                and (.RemoteDNSIP | type == "string" and length > 0)
+                and ([.DirectSites,.DirectIp,.ProxySites,.ProxyIp,.BlockSites,.BlockIp] | all(type == "array"))
+            ' "${user_dir}sub.incy.json" >/dev/null || {
+                error "invalid INCY routing profile in $user_dir"
+                return 1
+            }
+        fi
+    done
+    [ "$links_count" -gt 0 ] || { error "no generated subscriptions found in $source_dir"; return 1; }
+    success "local subscription verification passed ($links_count links)"
+}
+
 subscriptions_verify_caddy() {
     local host="$1" content_dir="$2"
     remote_bash "$host" "$content_dir" <<'REMOTE'

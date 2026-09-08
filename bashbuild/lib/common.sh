@@ -37,6 +37,14 @@ mesh_base64_noline() {
     fi
 }
 
+mesh_base64_decode() {
+    if base64 --help 2>&1 | grep -q -- '-d'; then
+        base64 -d
+    else
+        base64 -D
+    fi
+}
+
 # Non-fatal alert: logs a warning and, if configured, POSTs to MESH_WEBHOOK_URL.
 # Deploy failures must not crash the whole run (fail-safe, not fail-open).
 alert() {

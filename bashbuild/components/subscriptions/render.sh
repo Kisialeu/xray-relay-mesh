@@ -87,11 +87,10 @@ build_singbox_config() {
 }
 
 build_incy_routing_profile() {
-    local dns1="$1"
-    jq -cn --arg dns1 "$dns1" --arg updated "$(date +%s)" '{
+    local dns1="$1" profile
+    profile=$(jq -cn --arg dns1 "$dns1" '{
         Name: "Xray Relay Mesh",
         GlobalProxy: "true",
-        LastUpdated: $updated,
         RemoteDNSType: "DoU",
         RemoteDNSIP: $dns1,
         DirectSites: [],
@@ -101,7 +100,11 @@ build_incy_routing_profile() {
         BlockSites: ["geosite:category-ads-all"],
         BlockIp: [],
         DomainStrategy: "IPIfNonMatch"
-    }'
+    }')
+    # INCY treats LastUpdated as a profile version. Deriving it from the
+    # canonical routing content prevents refresh churn on no-op generation.
+    jq -c --arg version "$(printf '%s' "$profile" | sha256sum | awk '{print $1}')" \
+        '. + {LastUpdated: $version}' <<< "$profile"
 }
 
 user_hidden_on_node() {

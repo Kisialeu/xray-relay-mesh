@@ -51,6 +51,14 @@ inv_validate() {
         ((.subs.caddy_host // "") | test("^[A-Za-z0-9][A-Za-z0-9._:-]*$")) and
         ((.subs.ssh_user // "root") | test("^[A-Za-z_][A-Za-z0-9._-]*$")) and
         ((.subs.ssh_key // "~/.ssh/my_custom_key") | type == "string" and length > 0 and (test("[\\x00-\\x1F]") | not)) and
+        ((.subs.profile_title // "Xray Relay Mesh") | type == "string" and length > 0 and length <= 25 and test("^[^\\r\\n]*$")) and
+        ((.subs.profile_description // "") | type == "string" and length <= 240 and test("^[^\\r\\n]*$")) and
+        ((.subs.support_url // "") | type == "string" and length <= 512 and (length == 0 or test("^https://[^[:space:]]+$"))) and
+        ((.subs.support_email // "") | type == "string" and length <= 254 and (length == 0 or test("^[A-Za-z0-9.!#$%&*+/=?^_{}|~-]+@[A-Za-z0-9.-]+$"))) and
+        ((.subs.profile_update_interval // 24) | type == "number" and floor == . and . >= 1 and . <= 720) and
+        ((.subs.app_proxy.enable // false) | type == "boolean") and
+        ((.subs.app_proxy.mode // "") | type == "string" and (IN("", "bypass", "proxy"))) and
+        ((.subs.app_proxy.packages // "") | type == "string" and length <= 2048 and test("^[A-Za-z0-9._, -]*$")) and
         ((.stats.ssh_user // "stats-poller") | test("^[A-Za-z_][A-Za-z0-9._-]*$")) and
         ((.subs.caddy_deploy_dir // "/opt/caddy-subs") |
             test("^/opt/[A-Za-z0-9._/-]+$") and
@@ -414,6 +422,14 @@ inv_subs_ssh_user()        { jq -r '.subs.ssh_user // ""' "$1"; }
 inv_subs_ssh_key()         { jq -r '.subs.ssh_key // ""' "$1"; }
 inv_subs_secret()          { jq -r '.subs.sub_secret // ""' "$1"; }
 inv_subs_origin_verify_secret() { jq -r '.subs.origin_verify_secret // ""' "$1"; }
+inv_subs_profile_title()     { jq -r '.subs.profile_title // "Xray Relay Mesh"' "$1"; }
+inv_subs_profile_description(){ jq -r '.subs.profile_description // ""' "$1"; }
+inv_subs_support_url()       { jq -r '.subs.support_url // ""' "$1"; }
+inv_subs_support_email()     { jq -r '.subs.support_email // ""' "$1"; }
+inv_subs_profile_update_interval() { jq -r '.subs.profile_update_interval // 24' "$1"; }
+inv_subs_app_proxy_enable() { jq -r 'if .subs.app_proxy.enable == true then "true" else "false" end' "$1"; }
+inv_subs_app_proxy_mode() { jq -r '.subs.app_proxy.mode // "proxy"' "$1"; }
+inv_subs_app_proxy_packages() { jq -r '.subs.app_proxy.packages // ""' "$1"; }
 
 # ---- images (see inventory.json "images" block) ----
 # Single source of truth for the container image refs the xray stack pulls.

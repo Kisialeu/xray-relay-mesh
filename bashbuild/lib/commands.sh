@@ -157,6 +157,15 @@ mesh_command_cdn_plan() {
     jq -r '"Domain: \(.subs.domain)\nZone: \(.subs.zone_domain)\nOrigin: \(.subs.caddy_host):8080\nActions: ACM certificate, CloudFront distribution, Route53 alias, origin firewall policy\nNo state changed."' "$inventory"
 }
 
+mesh_command_subscription_verify() {
+    local inventory="$1" source_dir
+    inv_validate "$inventory" || return 1
+    source_dir="${SUB_DIR:-$MESH_DIR/var/subscriptions}"
+    # shellcheck source=../components/subscriptions/sync.sh
+    source "$MESH_DIR/bashbuild/components/subscriptions/sync.sh"
+    subscriptions_verify_local "$source_dir"
+}
+
 # Registrable-domain heuristic: strips the leftmost label unless the domain
 # already has 2 labels. Good enough for this project's real domains
 # (*.kisialeu.com, *.paravozik.click) - inventory has no explicit zone field
