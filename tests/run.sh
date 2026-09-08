@@ -68,7 +68,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..36\n'
+printf '1..38\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -274,3 +274,10 @@ if rg -n 'success .*sub_domain.*token|success .*https://.*\$token' \
     fail "subscription generation does not log tokenized URLs"
 fi
 pass "subscription generation does not log tokenized URLs"
+
+assert_failure "AdGuard UI command requires a node" \
+    "$ROOT_DIR/mesh.sh" adguard ui --inventory "$ROOT_DIR/configs/examples/inventory.2node.json"
+grep -F '127.0.0.1:${LOCAL_PORT}:127.0.0.1:3000' \
+    "$ROOT_DIR/infrastructure/host/adguard_ui.sh" >/dev/null \
+    || fail "AdGuard UI tunnel forwards the remote loopback port"
+pass "AdGuard UI tunnel forwards the remote loopback port"

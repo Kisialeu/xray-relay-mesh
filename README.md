@@ -146,6 +146,7 @@ The normalized non-interactive interface is:
 ./mesh.sh cdn apply
 ./mesh.sh cdn destroy
 ./mesh.sh network
+./mesh.sh adguard ui --node NAME
 ```
 
 Global options are `--inventory PATH`, `--dry-run`, `--yes`, `--non-interactive`, `--timeout SECONDS`, and `--verbose`. Render also accepts `--output DIR`. Legacy command aliases are not retained.
@@ -169,6 +170,8 @@ Read-only report, generated dynamically from the current inventory (never from a
 - which Route53 records need to exist, grouped by hosted zone, for every `tls_domain`, `subs.caddy_host`, and `stats.web_domain` configured
 
 It never contacts a remote host or AWS. `subs.domain` is flagged as needing a CloudFront CNAME/ALIAS rather than resolved directly - see `./mesh.sh cdn plan` for that.
+
+To open the AdGuard Home UI through a local SSH tunnel, run `./mesh.sh adguard ui --node astana`. The command forwards remote `127.0.0.1:3000` to local `127.0.0.1:3000`, opens the default browser, and closes the tunnel with Ctrl-C. Set `ADGUARD_LOCAL_PORT` if local port 3000 is already occupied.
 
 ## Node lifecycle
 
