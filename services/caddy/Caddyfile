@@ -37,9 +37,25 @@
     respond @bad_origin 403
 
     # ---- subscription endpoint: /<token> ----
+    @singbox_request {
+        path_regexp sub_token ^/([0-9a-f]{40})$
+        header_regexp ua User-Agent (?i)(sing-box|nekoray|nekobox|karing)
+    }
+
+    handle @singbox_request {
+        root * /srv/subs
+        rewrite /{re.sub_token.1}/sub.singbox.json
+
+        header Cache-Control "no-store, no-cache, must-revalidate"
+        header X-Content-Type-Options "nosniff"
+        header Content-Type "application/json; charset=utf-8"
+
+        file_server
+    }
+
     @sub_request {
         path_regexp sub_token ^/([0-9a-f]{40})$
-        header_regexp ua User-Agent (v2rayTun|v2rayNG|Hiddify|clash|mihomo|sing-box|nekoray|streisand|Shadowrocket|Quantumult|Stash|INCY)
+        header_regexp ua User-Agent (v2rayTun|v2rayNG|Hiddify|clash|mihomo|streisand|Shadowrocket|Quantumult|Stash|INCY)
     }
 
     handle @sub_request {

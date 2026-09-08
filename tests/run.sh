@@ -17,6 +17,8 @@ source "$ROOT_DIR/bashbuild/lib/stage.sh"
 source "$ROOT_DIR/bashbuild/components/caddy/stage.sh"
 # shellcheck source=../bashbuild/components/subscriptions/sync.sh
 source "$ROOT_DIR/bashbuild/components/subscriptions/sync.sh"
+# shellcheck source=../bashbuild/components/subscriptions/render.sh
+source "$ROOT_DIR/bashbuild/components/subscriptions/render.sh"
 
 pass_count=0
 
@@ -66,7 +68,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..31\n'
+printf '1..34\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -202,6 +204,7 @@ mkdir -p "$generated_dir/user"
 printf '%s\n' "$token" > "$generated_dir/user/sub.token"
 printf 'encoded\n' > "$generated_dir/user/sub.b64"
 printf 'https://sub.example.test/%s\n' "$token" > "$generated_dir/user/sub.url"
+printf '{"type":"vless","tag":"vless-fixture"}\n' > "$generated_dir/user/sub.singbox.json"
 printf 'private-link\n' > "$generated_dir/user/sub.links"
 subscriptions_stage=""
 stage_create subscriptions_stage subscriptions
@@ -209,11 +212,39 @@ subscriptions_render_stage "$generated_dir" "$subscriptions_stage"
 stage_manifest_validate "$subscriptions_stage/.mesh-manifest" \
     || fail "subscription sync stages an explicit public-file manifest"
 [ -f "$subscriptions_stage/$token/sub.b64" ] \
+    && [ -f "$subscriptions_stage/$token/sub.singbox.json" ] \
     && [ ! -e "$subscriptions_stage/$token/sub.links" ] \
     && [ ! -e "$subscriptions_stage/$token/sub.token" ] \
     || fail "subscription sync stages an explicit public-file manifest"
 pass "subscription sync stages an explicit public-file manifest"
 stage_cleanup
+
+singbox_vless=$(build_singbox_vless_outbound fixture-vless fixture-uuid 198.51.100.10 443 fixture-pubkey dl.google.com 0123456789abcdef firefox)
+singbox_hysteria=$(build_singbox_hysteria2_outbound fixture-hysteria user@example.test fixture-uuid 198.51.100.10 443 hy.example.test fixture-obfs)
+singbox_config=$(build_singbox_config 172.29.0.10 "[$singbox_vless,$singbox_hysteria]")
+printf '%s\n' "$singbox_config" | jq -e '
+    .dns.servers[0].address == "172.29.0.10"
+    and .dns.servers[0].detour == "proxy"
+    and .dns.rules[0].action == "route"
+    and .dns.rules[0].server == "adguard"
+    and (.outbounds | map(.tag) | index("proxy")) != null
+    and (.outbounds[] | select(.tag == "fixture-vless") | .packet_encoding == "xudp")
+    and (.outbounds[] | select(.tag == "fixture-hysteria") | .password == "user@example.test:fixture-uuid")
+    and (.outbounds[] | select(.tag == "fixture-hysteria") | .obfs.type == "salamander")
+    and .route.final == "proxy"
+' >/dev/null || fail "sing-box profile contains proxy DNS and client outbounds"
+pass "sing-box profile contains proxy DNS and client outbounds"
+
+grep -n '@singbox_request' "$ROOT_DIR/services/caddy/Caddyfile" | cut -d: -f1 | {
+    read -r singbox_line
+    sub_line=$(grep -n '@sub_request' "$ROOT_DIR/services/caddy/Caddyfile" | head -n1 | cut -d: -f1)
+    [ "$singbox_line" -lt "$sub_line" ]
+} || fail "Caddy routes sing-box clients before legacy subscriptions"
+pass "Caddy routes sing-box clients before legacy subscriptions"
+
+grep -F 'sub.singbox.json' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
+    || fail "Caddy serves the sing-box JSON subscription"
+pass "Caddy serves the sing-box JSON subscription"
 
 grep -F 'docker run --rm --network none' "$ROOT_DIR/bashbuild/components/xray/verify.sh" >/dev/null \
     || fail "Xray staged validation does not create a Docker network"
