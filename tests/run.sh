@@ -249,9 +249,9 @@ grep -F 'sub.singbox.json' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
 pass "Caddy serves the sing-box JSON subscription"
 
 incy_routing=$(build_incy_routing_profile 172.29.0.10)
-printf '%s\n' "$incy_routing" | jq -e '.GlobalProxy == "true" and .RemoteDNSType == "DoU" and .RemoteDNSIP == "172.29.0.10" and (.BlockSites | index("geosite:category-ads-all")) != null' >/dev/null \
-    || fail "INCY autorouting profile forces remote AdGuard DNS"
-pass "INCY autorouting profile forces remote AdGuard DNS"
+printf '%s\n' "$incy_routing" | jq -e '.GlobalProxy == "true" and .RemoteDNSType == "DoU" and .RemoteDNSIP == "94.140.14.14" and (.BlockSites | length) == 0' >/dev/null \
+    || fail "INCY autorouting profile uses mobile-compatible public DNS"
+pass "INCY autorouting profile uses mobile-compatible public DNS"
 
 grep -F 'header autorouting "incy://autorouting/onadd/https://{$SUB_DOMAIN}' "$ROOT_DIR/services/caddy/Caddyfile" >/dev/null \
     || fail "Caddy advertises the INCY autorouting profile"

@@ -87,8 +87,11 @@ build_singbox_config() {
 }
 
 build_incy_routing_profile() {
-    local dns1="$1" profile
-    profile=$(jq -cn --arg dns1 "$dns1" '{
+    local dns1="$1" profile remote_dns="94.140.14.14"
+    # INCY runs on the client device. A Docker-only address such as
+    # 172.29.0.10 is not reachable from phones, so use public AdGuard DNS
+    # for the client routing profile. Server-side Xray still uses local DNS.
+    profile=$(jq -cn --arg dns1 "$remote_dns" '{
         Name: "Xray Relay Mesh",
         GlobalProxy: "true",
         RemoteDNSType: "DoU",
@@ -97,7 +100,7 @@ build_incy_routing_profile() {
         DirectIp: [],
         ProxySites: [],
         ProxyIp: [],
-        BlockSites: ["geosite:category-ads-all"],
+        BlockSites: [],
         BlockIp: [],
         DomainStrategy: "IPIfNonMatch"
     }')
