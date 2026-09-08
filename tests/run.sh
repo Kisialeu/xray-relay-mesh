@@ -297,8 +297,8 @@ grep -F '4) Verify generated subscriptions' "$ROOT_DIR/bashbuild/lib/ui.sh" >/de
     || fail "interactive subscriptions menu exposes local verification"
 pass "interactive subscriptions menu exposes local verification"
 
-for allowed_domain in '"@@||vk.com^"' '"@@||mail.ru^"'; do
-    grep -F -- "- $allowed_domain" "$ROOT_DIR/tests/golden/inventory.2node/suomi/adguard.yaml" >/dev/null \
-        || fail "AdGuard allowlist includes $allowed_domain"
+for blocked_domain in '"||vk.com^"' '"||mail.ru^"'; do
+    grep -F -- "- $blocked_domain" "$ROOT_DIR/tests/golden/inventory.2node/suomi/adguard.yaml" >/dev/null \
+        || fail "AdGuard blocklist includes $blocked_domain"
 done
-pass "AdGuard allowlist includes VK and Mail.ru"
+pass "AdGuard blocklist includes VK and Mail.ru"

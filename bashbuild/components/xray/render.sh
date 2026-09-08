@@ -313,11 +313,11 @@ user_rules:
   - "@@||${sni}^"
   - "@@||www.googletagmanager.com^"
   - "@@||telemetry.individual.githubcopilot.com^"
-  # These services are explicitly allowed despite the enabled blocklists.
-  - "@@||vk.com^"
-  - "@@||mail.ru^"
-  - "@@||my.mail.ru^"
-  - "@@||cloud.mail.ru^"
+  # These services are explicitly blocked.
+  - "||vk.com^"
+  - "||mail.ru^"
+  - "||my.mail.ru^"
+  - "||cloud.mail.ru^"
   - "||ad.youtube.com^"
   - "||doubleclick.net^"
   - "||googlesyndication.com^"
