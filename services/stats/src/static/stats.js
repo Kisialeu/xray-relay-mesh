@@ -143,6 +143,7 @@
   function renderUsers(users) {
     const target = document.getElementById("users");
     if (!target) return;
+    const mobileTarget = document.getElementById("users-mobile");
     const filter = (document.getElementById("user-filter")?.value || "").toLowerCase().trim();
     const status = document.getElementById("status-filter")?.value || "all";
     const periodTotal = users.reduce((sum, user) => sum + user.period_total, 0);
@@ -163,6 +164,17 @@
       <td>${bytes(user.period_total)}</td><td>${periodTotal ? `${(user.period_total / periodTotal * 100).toFixed(1)}%` : "-"}</td><td>${bytes(user.total)}</td>
       <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td><td class="${user.online ? "yes" : "muted"}">${user.online_nodes.length ? user.online_nodes.map(escapeHtml).join(", ") : "-"}</td><td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
     </tr>`).join("") : `<tr><td colspan="10" class="empty">No matching users.</td></tr>`;
+    if (mobileTarget) {
+      mobileTarget.innerHTML = visible.length ? visible.map((user) => {
+        const status = !user.available ? "unknown" : (user.online ? "online" : "offline");
+        const activity = !user.available ? "unknown" : (user.active ? "active" : "idle");
+        return `<a class="mobile-user-card" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">
+          <div class="mobile-user-head"><strong>${escapeHtml(user.user)}</strong><span class="state ${status === "online" ? "ok" : (status === "offline" ? "bad" : "unknown")}">${status}</span></div>
+          <div class="mobile-user-meta">${user.nodes.map(escapeHtml).join(", ")} <span class="mobile-divider">|</span> ${user.protocols.map(escapeHtml).join(", ")}</div>
+          <div class="mobile-user-stats"><span><b>${bytes(user.period_total)}</b><small>selected</small></span><span><b>${bytes(user.total)}</b><small>lifetime</small></span><span><b>${activity}</b><small>activity</small></span></div>
+        </a>`;
+      }).join("") : `<div class="empty">No matching users.</div>`;
+    }
   }
 
   function renderTrafficChart(data, targetId, coverageId) {

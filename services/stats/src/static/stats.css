@@ -11,7 +11,7 @@
   --amber: #f2b762;
   --purple: #b18cff;
   --red: #ff7373;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -65,6 +65,18 @@ h2 { font-size: 16px; letter-spacing: -.02em; }
 .search-box input { width: min(260px, 46vw); padding: 9px 11px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 3px; font: inherit; font-size: 11px; outline: none; }
 .search-box input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px #65a9ff22; }
 .table-wrap { overflow-x: auto; }
+.mobile-user-list { display: none; }
+.mobile-user-card { display: block; padding: 14px; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--line); }
+.mobile-user-card:last-child { border-bottom: 0; }
+.mobile-user-card:active { background: #19222a; }
+.mobile-user-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mobile-user-head strong { font-size: 14px; }
+.mobile-user-meta { margin-top: 7px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-divider { color: var(--line); margin: 0 5px; }
+.mobile-user-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 13px; }
+.mobile-user-stats span { display: flex; flex-direction: column; gap: 3px; }
+.mobile-user-stats b { color: var(--text); font-size: 12px; }
+.mobile-user-stats small { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
 table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 th, td { padding: 12px 18px; border-bottom: 1px solid #1d252d; font-size: 11px; text-align: left; }
 th { color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; }
@@ -87,4 +99,4 @@ td:first-child { color: var(--text); font-weight: 600; }
 .chart-subtitle { margin-top: 6px; color: var(--muted); font-size: 10px; }.line-chart { display: block; height: 300px; padding: 10px 18px 0; }.line-chart svg { display: block; width: 100%; height: 100%; }.chart-grid-line { stroke: #26303a; stroke-width: 1; }.chart-axis-label { fill: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }.chart-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }.line-chart circle { opacity: .85; }.legend-line { display: inline-block; width: 18px; height: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } th, td { padding-right: 12px; padding-left: 12px; } }
-@media (max-width: 560px) { .shell, .narrow-shell { width: min(100% - 24px, 1440px); padding-top: 20px; }.topbar, .topbar-meta { align-items: flex-start; flex-direction: column; }.topbar-meta { gap: 8px; text-align: left; }.metric-grid { gap: 8px; margin: 16px 0; }.metric-card { min-height: 100px; padding: 14px; }.metric-card strong { margin-top: 9px; font-size: 21px; }.panel-heading { align-items: flex-start; flex-direction: column; }.users-heading { align-items: stretch; }.table-controls { align-items: stretch; flex-direction: column; }.search-box input { width: 100%; }.traffic-chart { gap: 2px; height: 190px; padding-right: 10px; padding-left: 10px; } }
+@media (max-width: 560px) { .shell, .narrow-shell { width: min(100% - 24px, 1440px); padding-top: 20px; }.topbar, .topbar-meta { align-items: flex-start; flex-direction: column; }.topbar-meta { gap: 8px; text-align: left; }.metric-grid { gap: 8px; margin: 16px 0; }.metric-card { min-height: 100px; padding: 14px; }.metric-card strong { margin-top: 9px; font-size: 21px; }.panel-heading { align-items: flex-start; flex-direction: column; }.users-heading { align-items: stretch; }.table-controls { align-items: stretch; flex-direction: column; }.search-box input { width: 100%; }.traffic-chart { gap: 2px; height: 190px; padding-right: 10px; padding-left: 10px; }.users-panel .table-wrap { display: none; }.users-panel .mobile-user-list { display: block; } }

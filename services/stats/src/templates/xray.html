@@ -26,7 +26,7 @@
       <article class="metric-card accent-amber"><span class="metric-label">Healthy nodes</span><strong id="metric-nodes">-</strong><span class="metric-note">polling status</span></article>
     </section>
 
-    <section class="panel">
+    <section class="panel users-panel">
       <div class="panel-heading"><div><p class="eyebrow">MESH TRAFFIC</p><h2>Upload and download over time</h2><p class="chart-subtitle">Gaps indicate unavailable polling data</p></div><span id="traffic-coverage" class="panel-count">Waiting for samples</span></div>
       <div id="mesh-traffic-chart" class="traffic-chart line-chart" role="img" aria-label="Mesh upload and download over time"></div>
       <div class="chart-legend"><span><i class="legend-line" style="background:var(--blue)"></i>Upload</span><span><i class="legend-line" style="background:var(--purple)"></i>Download</span></div>
@@ -40,6 +40,7 @@
     <section class="panel">
       <div class="panel-heading users-heading"><div><p class="eyebrow">ACCOUNT TRAFFIC</p><h2>Users</h2></div><div class="table-controls"><label class="search-box"><span class="sr-only">Filter users</span><input id="user-filter" type="search" placeholder="Filter user or node" autocomplete="off"></label><label class="range-control"><span class="sr-only">Filter status</span><select id="status-filter"><option value="all">All states</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">Unknown</option></select></label></div></div>
       <div class="table-wrap"><table><thead><tr><th><button class="sort-button" data-sort="user">User</button></th><th>Nodes</th><th>Protocols</th><th><button class="sort-button active descending" data-sort="period_total">Selected period</button></th><th>Share</th><th><button class="sort-button" data-sort="total">Lifetime</button></th><th>Online</th><th>Online on</th><th>Activity</th><th><button class="sort-button" data-sort="last_seen">Last seen</button></th></tr></thead><tbody id="users"><tr><td colspan="10" class="empty">Loading user traffic...</td></tr></tbody></table></div>
+      <div id="users-mobile" class="mobile-user-list" aria-label="Users"></div>
     </section>
 
     <footer class="footer">Auto-refresh <span id="refresh-interval">15s</span> <span class="footer-separator">/</span> read-only collector</footer>
