@@ -245,10 +245,12 @@ dns:
     - 0.0.0.0
   port: 53
   upstream_dns:
-    - 1.1.1.1
-    - 1.0.0.1
-    - 8.8.8.8
-    - 8.8.4.4
+    - https://dns.adguard-dns.com/dns-query
+    - https://dns.cloudflare.com/dns-query
+    - quic://dns.nextdns.io:853
+    - https://dns.nextdns.io:443
+    - quic://p0.freedns.controld.com:853
+    - https://dns.cloudflare.com:443/dns-query
   upstream_dns_file: ""
   bootstrap_dns:
     - 1.1.1.1
