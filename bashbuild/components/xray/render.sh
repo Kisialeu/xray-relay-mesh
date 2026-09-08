@@ -245,16 +245,19 @@ dns:
     - 0.0.0.0
   port: 53
   upstream_dns:
-    - https://dns.adguard-dns.com/dns-query
-    - https://dns.cloudflare.com/dns-query
+    - 1.1.1.1
+    - 1.0.0.1
+    - 8.8.8.8
+    - 8.8.4.4
   upstream_dns_file: ""
   bootstrap_dns:
-    - 94.140.14.14
-    - 94.140.15.15
+    - 1.1.1.1
+    - 8.8.8.8
   fallback_dns: []
-  all_servers: false
+  all_servers: true
   fastest_addr: true
-  cache_size: 4194304
+  cache_size: 33554432
+  cache_optimistic: true
   cache_ttl_min: 0
   cache_ttl_max: 0
   refuse_any: true
@@ -287,10 +290,6 @@ filters:
     name: AdGuard DNS Popup Hosts filter
     id: 59
   - enabled: true
-    url: https://big.oisd.nl/domainswild
-    name: OISD Big (wildcard)
-    id: 102
-  - enabled: true
     url: https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt
     name: HaGeZi Multi PRO
     id: 103
@@ -302,6 +301,7 @@ filters:
     url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
     name: StevenBlack Unified hosts
     id: 105
+
 user_rules:
   - "@@||${sni}^"
   - "@@||www.googletagmanager.com^"
