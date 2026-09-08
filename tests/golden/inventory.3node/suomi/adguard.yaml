@@ -11,17 +11,25 @@ dns:
     - 0.0.0.0
   port: 53
   upstream_dns:
+    - 1.1.1.1
+    - 1.0.0.1
     - https://dns.adguard-dns.com/dns-query
     - https://dns.cloudflare.com/dns-query
     - quic://dns.nextdns.io:853
     - https://dns.nextdns.io:443
-    - quic://p0.freedns.controld.com:853
+    - 94.140.14.14
+    - 94.140.15.15
     - https://dns.cloudflare.com:443/dns-query
+    - 8.8.8.8
+    - tcp://94.140.14.140
+    - tcp://unfiltered.adguard-dns.com
+    - 8.8.4.4
   upstream_dns_file: ""
   bootstrap_dns:
     - 1.1.1.1
     - 8.8.8.8
-  fallback_dns: []
+  fallback_dns:
+    - 1.1.1.1
   all_servers: true
   fastest_addr: true
   cache_size: 33554432
@@ -41,10 +49,7 @@ dns:
   safe_search:
     enabled: false
 filters:
-  - enabled: true
-    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
-    name: AdGuard DNS filter
-    id: 1
+
   - enabled: true
     url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt
     name: AdAway Default Blocklist
