@@ -140,6 +140,41 @@
     });
   }
 
+  function aggregateTraffic(rows, groupKey) {
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const name = String(row[groupKey] || "unknown");
+      const current = grouped.get(name) || { name, uplink: 0, downlink: 0, total: 0, online: false };
+      current.uplink += Number(row.period_uplink || 0);
+      current.downlink += Number(row.period_downlink || 0);
+      current.total += Number(row.period_total || 0);
+      current.online = current.online || Boolean(row.online);
+      grouped.set(name, current);
+    });
+    return [...grouped.values()].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
+  }
+
+  function renderTrafficBreakdown(rows, groupKey, targetId, hrefPrefix, limit = 12) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const allGroups = aggregateTraffic(rows, groupKey);
+    const grouped = allGroups.slice(0, limit);
+    const maximum = Math.max(1, ...grouped.map((item) => item.total));
+    const grandTotal = allGroups.reduce((sum, item) => sum + item.total, 0);
+    target.innerHTML = grouped.length ? grouped.map((item) => {
+      const totalWidth = item.total ? Math.max(1.5, item.total / maximum * 100) : 0;
+      const uploadWidth = item.total ? item.uplink / item.total * 100 : 0;
+      const downloadWidth = item.total ? item.downlink / item.total * 100 : 0;
+      const share = grandTotal ? item.total / grandTotal * 100 : 0;
+      const href = `${STATS_BASE}${hrefPrefix}${encodeURIComponent(item.name)}`;
+      return `<a class="breakdown-row" href="${href}" title="Upload ${escapeHtml(bytes(item.uplink))}, download ${escapeHtml(bytes(item.downlink))}">
+        <span class="breakdown-label"><strong>${escapeHtml(item.name)}</strong><small>${share.toFixed(1)}%${item.online ? " · online" : ""}</small></span>
+        <span class="breakdown-track"><span class="breakdown-fill" style="width:${totalWidth.toFixed(2)}%"><i class="breakdown-upload" style="width:${uploadWidth.toFixed(2)}%"></i><i class="breakdown-download" style="width:${downloadWidth.toFixed(2)}%"></i></span></span>
+        <b>${escapeHtml(bytes(item.total))}</b>
+      </a>`;
+    }).join("") : `<div class="empty">No traffic in the selected period.</div>`;
+  }
+
   function renderUsers(users) {
     const target = document.getElementById("users");
     if (!target) return;
@@ -213,10 +248,10 @@
     const dots = available.map((sample) => {
       const index = samples.indexOf(sample);
       const title = `${date(sample.ts)} - up ${bytes(sample.uplink)}, down ${bytes(sample.downlink)}`;
-      return `<circle cx="${x(index)}" cy="${y(sample.uplink)}" r="2.5" fill="#65a9ff"><title>${escapeHtml(title)}</title></circle><circle cx="${x(index)}" cy="${y(sample.downlink)}" r="2.5" fill="#b18cff"><title>${escapeHtml(title)}</title></circle>`;
+      return `<circle cx="${x(index)}" cy="${y(sample.uplink)}" r="2.5" fill="#43a5ff"><title>${escapeHtml(title)}</title></circle><circle cx="${x(index)}" cy="${y(sample.downlink)}" r="2.5" fill="#9b8cff"><title>${escapeHtml(title)}</title></circle>`;
     }).join("");
     const axis = `<text class="chart-axis-label" x="${left}" y="278">${escapeHtml(date(samples[0].ts))}</text><text class="chart-axis-label" text-anchor="end" x="${right}" y="278">${escapeHtml(date(samples[samples.length - 1].ts))}</text>`;
-    target.innerHTML = `<svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">${grid}${axis}${line("uplink", "#65a9ff")}${line("downlink", "#b18cff")}${dots}</svg>`;
+    target.innerHTML = `<svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">${grid}${axis}${line("uplink", "#43a5ff")}${line("downlink", "#9b8cff")}${dots}</svg>`;
     const measured = samples.slice(0, -1).filter((sample) => sample.coverage !== null);
     const coverage = measured.length ? measured.reduce((sum, sample) => sum + Number(sample.coverage || 0), 0) / measured.length : null;
     setText(coverageId, coverage === null ? "Historical coverage unknown" : `${(coverage * 100).toFixed(1)}% poll coverage`);
@@ -236,7 +271,11 @@
     document.getElementById("metric-online").textContent = String(online);
     document.getElementById("metric-users-note").textContent = `${users.length} tracked user${users.length === 1 ? "" : "s"}`;
     document.getElementById("metric-nodes").textContent = `${healthy}/${nodes.length}`;
-    renderNodes(nodes, rawUsers); state.users = users; renderUsers(users);
+    renderNodes(nodes, rawUsers);
+    renderTrafficBreakdown(rawUsers, "node", "node-traffic-breakdown", "/nodes/");
+    renderTrafficBreakdown(rawUsers, "user", "user-traffic-breakdown", "/users/", 8);
+    state.users = users;
+    renderUsers(users);
   }
 
   async function loadDashboard() {
@@ -309,6 +348,7 @@
       setText("user-nodes", String(nodeUsers.length));
       setText("user-status", online ? "online on one or more nodes" : (active ? "active recently" : "offline"));
       renderUserNodes(nodeUsers);
+      renderTrafficBreakdown(nodeUsers, "node", "user-node-breakdown", "/nodes/");
       renderTrafficChart(analytics.traffic, "user-traffic-chart", "user-traffic-coverage");
       setConnection("ok", "LIVE"); document.getElementById("access-error")?.classList.add("hidden");
     } catch (error) { showError(error.message); }
@@ -383,6 +423,7 @@
       setText("node-down", bytes(download));
       setText("node-online", String(online));
       renderNodeUsers(users);
+      renderTrafficBreakdown(users, "user", "node-user-breakdown", "/users/", 10);
       setText("node-user-count", `${analytics.active_users} active / ${users.length} tracked`);
       renderTrafficChart(analytics.traffic, "node-traffic-chart", "node-traffic-coverage");
       renderNodeSamples(samples);
