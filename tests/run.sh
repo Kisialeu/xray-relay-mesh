@@ -68,7 +68,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..41\n'
+printf '1..42\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -296,3 +296,9 @@ grep -F '4) Verify generated subscriptions' "$ROOT_DIR/bashbuild/lib/ui.sh" >/de
     && grep -F 'mesh_ui_exec subscription verify' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
     || fail "interactive subscriptions menu exposes local verification"
 pass "interactive subscriptions menu exposes local verification"
+
+for allowed_domain in '"@@||vk.com^"' '"@@||mail.ru^"'; do
+    grep -F -- "- $allowed_domain" "$ROOT_DIR/tests/golden/inventory.2node/suomi/adguard.yaml" >/dev/null \
+        || fail "AdGuard allowlist includes $allowed_domain"
+done
+pass "AdGuard allowlist includes VK and Mail.ru"
