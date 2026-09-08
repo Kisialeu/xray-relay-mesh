@@ -140,9 +140,45 @@
     });
   }
 
+  function aggregateTraffic(rows, groupKey) {
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const name = String(row[groupKey] || "unknown");
+      const current = grouped.get(name) || { name, uplink: 0, downlink: 0, total: 0, online: false };
+      current.uplink += Number(row.period_uplink || 0);
+      current.downlink += Number(row.period_downlink || 0);
+      current.total += Number(row.period_total || 0);
+      current.online = current.online || Boolean(row.online);
+      grouped.set(name, current);
+    });
+    return [...grouped.values()].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
+  }
+
+  function renderTrafficBreakdown(rows, groupKey, targetId, hrefPrefix, limit = 12) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const allGroups = aggregateTraffic(rows, groupKey);
+    const grouped = allGroups.slice(0, limit);
+    const maximum = Math.max(1, ...grouped.map((item) => item.total));
+    const grandTotal = allGroups.reduce((sum, item) => sum + item.total, 0);
+    target.innerHTML = grouped.length ? grouped.map((item) => {
+      const totalWidth = item.total ? Math.max(1.5, item.total / maximum * 100) : 0;
+      const uploadWidth = item.total ? item.uplink / item.total * 100 : 0;
+      const downloadWidth = item.total ? item.downlink / item.total * 100 : 0;
+      const share = grandTotal ? item.total / grandTotal * 100 : 0;
+      const href = `${STATS_BASE}${hrefPrefix}${encodeURIComponent(item.name)}`;
+      return `<a class="breakdown-row" href="${href}" title="Upload ${escapeHtml(bytes(item.uplink))}, download ${escapeHtml(bytes(item.downlink))}">
+        <span class="breakdown-label"><strong>${escapeHtml(item.name)}</strong><small>${share.toFixed(1)}%${item.online ? " · online" : ""}</small></span>
+        <span class="breakdown-track"><span class="breakdown-fill" style="width:${totalWidth.toFixed(2)}%"><i class="breakdown-upload" style="width:${uploadWidth.toFixed(2)}%"></i><i class="breakdown-download" style="width:${downloadWidth.toFixed(2)}%"></i></span></span>
+        <b>${escapeHtml(bytes(item.total))}</b>
+      </a>`;
+    }).join("") : `<div class="empty">No traffic in the selected period.</div>`;
+  }
+
   function renderUsers(users) {
     const target = document.getElementById("users");
     if (!target) return;
+    const mobileTarget = document.getElementById("users-mobile");
     const filter = (document.getElementById("user-filter")?.value || "").toLowerCase().trim();
     const status = document.getElementById("status-filter")?.value || "all";
     const periodTotal = users.reduce((sum, user) => sum + user.period_total, 0);
@@ -163,6 +199,17 @@
       <td>${bytes(user.period_total)}</td><td>${periodTotal ? `${(user.period_total / periodTotal * 100).toFixed(1)}%` : "-"}</td><td>${bytes(user.total)}</td>
       <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td><td class="${user.online ? "yes" : "muted"}">${user.online_nodes.length ? user.online_nodes.map(escapeHtml).join(", ") : "-"}</td><td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
     </tr>`).join("") : `<tr><td colspan="10" class="empty">No matching users.</td></tr>`;
+    if (mobileTarget) {
+      mobileTarget.innerHTML = visible.length ? visible.map((user) => {
+        const status = !user.available ? "unknown" : (user.online ? "online" : "offline");
+        const activity = !user.available ? "unknown" : (user.active ? "active" : "idle");
+        return `<a class="mobile-user-card" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">
+          <div class="mobile-user-head"><strong>${escapeHtml(user.user)}</strong><span class="state ${status === "online" ? "ok" : (status === "offline" ? "bad" : "unknown")}">${status}</span></div>
+          <div class="mobile-user-meta">${user.nodes.map(escapeHtml).join(", ")} <span class="mobile-divider">|</span> ${user.protocols.map(escapeHtml).join(", ")}</div>
+          <div class="mobile-user-stats"><span><b>${bytes(user.period_total)}</b><small>selected</small></span><span><b>${bytes(user.total)}</b><small>lifetime</small></span><span><b>${activity}</b><small>activity</small></span></div>
+        </a>`;
+      }).join("") : `<div class="empty">No matching users.</div>`;
+    }
   }
 
   function renderTrafficChart(data, targetId, coverageId) {
@@ -201,10 +248,10 @@
     const dots = available.map((sample) => {
       const index = samples.indexOf(sample);
       const title = `${date(sample.ts)} - up ${bytes(sample.uplink)}, down ${bytes(sample.downlink)}`;
-      return `<circle cx="${x(index)}" cy="${y(sample.uplink)}" r="2.5" fill="#65a9ff"><title>${escapeHtml(title)}</title></circle><circle cx="${x(index)}" cy="${y(sample.downlink)}" r="2.5" fill="#b18cff"><title>${escapeHtml(title)}</title></circle>`;
+      return `<circle cx="${x(index)}" cy="${y(sample.uplink)}" r="2.5" fill="#43a5ff"><title>${escapeHtml(title)}</title></circle><circle cx="${x(index)}" cy="${y(sample.downlink)}" r="2.5" fill="#9b8cff"><title>${escapeHtml(title)}</title></circle>`;
     }).join("");
     const axis = `<text class="chart-axis-label" x="${left}" y="278">${escapeHtml(date(samples[0].ts))}</text><text class="chart-axis-label" text-anchor="end" x="${right}" y="278">${escapeHtml(date(samples[samples.length - 1].ts))}</text>`;
-    target.innerHTML = `<svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">${grid}${axis}${line("uplink", "#65a9ff")}${line("downlink", "#b18cff")}${dots}</svg>`;
+    target.innerHTML = `<svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">${grid}${axis}${line("uplink", "#43a5ff")}${line("downlink", "#9b8cff")}${dots}</svg>`;
     const measured = samples.slice(0, -1).filter((sample) => sample.coverage !== null);
     const coverage = measured.length ? measured.reduce((sum, sample) => sum + Number(sample.coverage || 0), 0) / measured.length : null;
     setText(coverageId, coverage === null ? "Historical coverage unknown" : `${(coverage * 100).toFixed(1)}% poll coverage`);
@@ -224,7 +271,11 @@
     document.getElementById("metric-online").textContent = String(online);
     document.getElementById("metric-users-note").textContent = `${users.length} tracked user${users.length === 1 ? "" : "s"}`;
     document.getElementById("metric-nodes").textContent = `${healthy}/${nodes.length}`;
-    renderNodes(nodes, rawUsers); state.users = users; renderUsers(users);
+    renderNodes(nodes, rawUsers);
+    renderTrafficBreakdown(rawUsers, "node", "node-traffic-breakdown", "/nodes/");
+    renderTrafficBreakdown(rawUsers, "user", "user-traffic-breakdown", "/users/", 8);
+    state.users = users;
+    renderUsers(users);
   }
 
   async function loadDashboard() {
@@ -297,6 +348,7 @@
       setText("user-nodes", String(nodeUsers.length));
       setText("user-status", online ? "online on one or more nodes" : (active ? "active recently" : "offline"));
       renderUserNodes(nodeUsers);
+      renderTrafficBreakdown(nodeUsers, "node", "user-node-breakdown", "/nodes/");
       renderTrafficChart(analytics.traffic, "user-traffic-chart", "user-traffic-coverage");
       setConnection("ok", "LIVE"); document.getElementById("access-error")?.classList.add("hidden");
     } catch (error) { showError(error.message); }
@@ -371,6 +423,7 @@
       setText("node-down", bytes(download));
       setText("node-online", String(online));
       renderNodeUsers(users);
+      renderTrafficBreakdown(users, "user", "node-user-breakdown", "/users/", 10);
       setText("node-user-count", `${analytics.active_users} active / ${users.length} tracked`);
       renderTrafficChart(analytics.traffic, "node-traffic-chart", "node-traffic-coverage");
       renderNodeSamples(samples);
