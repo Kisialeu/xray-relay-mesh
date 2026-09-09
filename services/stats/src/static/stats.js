@@ -48,7 +48,7 @@
   }
 
   function presenceLabel(presence) {
-    return presence === "online" ? "Online" : presence === "active" ? "Active" : presence === "unknown" ? "Unknown" : "Offline";
+    return presence === "online" ? "Online" : presence === "active" ? "Traffic" : presence === "unknown" ? "No data" : "Offline";
   }
 
   function presenceBadge(presence) {
@@ -104,7 +104,7 @@
     const target = document.getElementById("nodes");
     if (!target) return;
     const grouped = groupByNode(nodes);
-    document.getElementById("node-count").textContent = `${grouped.size} node${grouped.size === 1 ? "" : "s"}`;
+    document.getElementById("node-count").textContent = String(grouped.size);
     const cards = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nodeName, rows]) => {
       const allOk = rows.every((row) => row.ok);
       const anyOk = rows.some((row) => row.ok);
@@ -209,7 +209,7 @@
         <span class="breakdown-track"><span class="breakdown-fill" style="width:${totalWidth.toFixed(2)}%"><i class="breakdown-upload" style="width:${uploadWidth.toFixed(2)}%"></i><i class="breakdown-download" style="width:${downloadWidth.toFixed(2)}%"></i></span></span>
         <b>${escapeHtml(bytes(item.total))}</b>
       </a>`;
-    }).join("") : `<div class="empty">No traffic in the selected period.</div>`;
+    }).join("") : `<div class="empty">No traffic.</div>`;
   }
 
   function renderUsers(users) {
@@ -242,7 +242,7 @@
         return `<a class="mobile-user-card" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">
           <div class="mobile-user-head"><strong>${escapeHtml(user.user)}</strong>${presenceBadge(user.presence)}</div>
           <div class="mobile-user-meta">${user.nodes.map(escapeHtml).join(", ")} <span class="mobile-divider">|</span> ${user.protocols.map(escapeHtml).join(", ")}</div>
-          <div class="mobile-user-stats"><span><b>${bytes(user.period_total)}</b><small>selected</small></span><span><b>${escapeHtml(user.last_node || "-")}</b><small>last node</small></span><span><b>${escapeHtml(relativeDate(user.last_online))}</b><small>last online</small></span></div>
+          <div class="mobile-user-stats"><span><b>${bytes(user.period_total)}</b><small>range</small></span><span><b>${escapeHtml(user.last_node || "-")}</b><small>last node</small></span><span><b>${escapeHtml(relativeDate(user.last_online))}</b><small>last online</small></span></div>
         </a>`;
       }).join("") : `<div class="empty">No matching users.</div>`;
     }
@@ -255,7 +255,7 @@
     const available = samples.filter((sample) => sample.total !== null);
     if (!available.length) {
       target.innerHTML = `<span class="empty">No traffic data is available for this range.</span>`;
-      setText(coverageId, "No poll coverage");
+      setText(coverageId, "No coverage");
       return;
     }
     const max = Math.max(1, ...available.flatMap((sample) => [sample.uplink, sample.downlink]));
@@ -290,7 +290,7 @@
     target.innerHTML = `<svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">${grid}${axis}${line("uplink", "#5b9cff")}${line("downlink", "#d5a35e")}${dots}</svg>`;
     const measured = samples.slice(0, -1).filter((sample) => sample.coverage !== null);
     const coverage = measured.length ? measured.reduce((sum, sample) => sum + Number(sample.coverage || 0), 0) / measured.length : null;
-    setText(coverageId, coverage === null ? "Historical coverage unknown" : `${(coverage * 100).toFixed(1)}% poll coverage`);
+    setText(coverageId, coverage === null ? "No coverage" : `${(coverage * 100).toFixed(1)}% coverage`);
   }
 
   function renderSummary(data, traffic) {
@@ -303,9 +303,9 @@
     document.getElementById("metric-total").textContent = bytes(total);
     const complete = (traffic.series || []).slice(0, -1).at(-1);
     document.getElementById("metric-rate").textContent = complete?.total !== null && complete?.total !== undefined ? rate(complete.total / traffic.bucket_seconds) : "-";
-    document.getElementById("metric-range-note").textContent = `${ranges[state.rangeSeconds].label} across all nodes`;
+    document.getElementById("metric-range-note").textContent = ranges[state.rangeSeconds].label;
     document.getElementById("metric-online").textContent = String(online);
-    document.getElementById("metric-users-note").textContent = `${users.length} tracked user${users.length === 1 ? "" : "s"}`;
+    document.getElementById("metric-users-note").textContent = `${users.length} user${users.length === 1 ? "" : "s"}`;
     document.getElementById("metric-nodes").textContent = `${healthy}/${nodes.length}`;
     renderNodes(nodes, rawUsers);
     renderTrafficBreakdown(rawUsers, "node", "node-traffic-breakdown", "/nodes/");
@@ -351,7 +351,7 @@
       <td data-label="Node"><a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(user.node)}">${escapeHtml(user.node)}</a></td>
       <td data-label="Protocol"><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td>
       <td data-label="Status">${presenceBadge(user.presence || (!user.available ? "unknown" : user.online ? "online" : user.active ? "active" : "offline"))}</td>
-      <td data-label="Last online">${timeHtml(user.last_online)}</td><td data-label="Last traffic">${timeHtml(user.last_seen)}</td><td data-label="Selected period">${bytes(user.period_total)}</td>
+      <td data-label="Last online">${timeHtml(user.last_online)}</td><td data-label="Last traffic">${timeHtml(user.last_seen)}</td><td data-label="Range">${bytes(user.period_total)}</td>
     </tr>`).join("") : `<tr><td colspan="6" class="empty">No node traffic recorded for this user.</td></tr>`;
     const count = document.getElementById("node-sample-count");
     if (count) count.textContent = `${users.length} stream${users.length === 1 ? "" : "s"}`;
@@ -377,12 +377,12 @@
       const aggregate = aggregateUsers(nodeUsers)[0];
       setText("user-total", bytes(total));
       setText("user-traffic-split", `Up ${bytes(upload)} / down ${bytes(download)}`);
-      setText("user-active-nodes", `${analytics.active_nodes} active node${analytics.active_nodes === 1 ? "" : "s"} in ${ranges[requestedRange].label}`);
+      setText("user-active-nodes", ranges[requestedRange].label);
       setText("user-active-node-count", String(analytics.active_nodes));
       setText("user-last-seen", relativeDate(aggregate.last_online));
       setText("user-last-node", `Last node ${aggregate.last_node || "-"}`);
       setText("user-presence", presenceLabel(aggregate.presence));
-      setText("user-status", aggregate.presence === "online" ? `Confirmed on ${aggregate.online_nodes.join(", ")}` : aggregate.presence === "active" ? "Traffic detected in the latest poll" : aggregate.presence === "unknown" ? "Telemetry is currently unavailable" : "No confirmed session");
+      setText("user-status", aggregate.presence === "online" ? aggregate.online_nodes.join(", ") : "");
       renderUserNodes(nodeUsers);
       renderTrafficBreakdown(nodeUsers, "node", "user-node-breakdown", "/nodes/");
       renderTrafficChart(analytics.traffic, "user-traffic-chart", "user-traffic-coverage");
@@ -397,7 +397,7 @@
       <td data-label="User"><a class="user-link" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">${escapeHtml(user.user)}</a></td>
       <td data-label="Protocol"><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td>
       <td data-label="Status">${presenceBadge(user.presence || (!user.available ? "unknown" : user.online ? "online" : user.active ? "active" : "offline"))}</td>
-      <td data-label="Last online">${timeHtml(user.last_online)}</td><td data-label="Last traffic">${timeHtml(user.last_seen)}</td><td data-label="Selected period">${bytes(user.period_total)}</td>
+      <td data-label="Last online">${timeHtml(user.last_online)}</td><td data-label="Last traffic">${timeHtml(user.last_seen)}</td><td data-label="Range">${bytes(user.period_total)}</td>
     </tr>`).join("") : `<tr><td colspan="6" class="empty">No users recorded on this node.</td></tr>`;
     setText("node-user-count", `${users.length} user${users.length === 1 ? "" : "s"}`);
   }
@@ -453,13 +453,13 @@
       setText("node-poll-summary", `${analytics.successful_polls}/${analytics.polls} polls, avg ${analytics.average_latency_ms ?? "-"} ms`);
       setText("node-total", bytes(total));
       const complete = (analytics.traffic.series || []).slice(0, -1).at(-1);
-      setText("node-rate", complete?.total !== null && complete?.total !== undefined ? `${rate(complete.total / analytics.traffic.bucket_seconds)} recent average` : "recent throughput unavailable");
+      setText("node-rate", complete?.total !== null && complete?.total !== undefined ? rate(complete.total / analytics.traffic.bucket_seconds) : "-");
       setText("node-up", bytes(upload));
       setText("node-down", bytes(download));
       setText("node-online", String(online));
       renderNodeUsers(users);
       renderTrafficBreakdown(users, "user", "node-user-breakdown", "/users/", 10);
-      setText("node-user-count", `${analytics.active_users} active / ${users.length} tracked`);
+      setText("node-user-count", `${users.length} total`);
       renderTrafficChart(analytics.traffic, "node-traffic-chart", "node-traffic-coverage");
       renderNodeSamples(samples);
       setConnection(allOk ? "ok" : (anyOk ? "pending" : "bad"), allOk ? "LIVE" : (anyOk ? "DEGRADED" : "DOWN"));
