@@ -84,6 +84,16 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(xray_total.uplink, 20)
         self.assertEqual(hysteria_total.uplink, 0)  # only one poll so far, no delta yet
 
+    def test_last_online_is_updated_only_for_confirmed_online_activity(self):
+        with patch("poller.time.time", side_effect=[100, 102, 104]):
+            accumulate("node-a", "xray", {"alice": {"uplink": 10, "downlink": 20}}, {"alice"})
+            accumulate("node-a", "xray", {"alice": {"uplink": 20, "downlink": 40}}, set())
+            accumulate("node-a", "xray", {"alice": {"uplink": 30, "downlink": 60}}, {"alice"})
+
+        with session_scope() as session:
+            alice = session.get(Total, ("node-a", "xray", "alice"))
+            self.assertEqual(alice.last_online, 104)
+
     def test_online_requires_node_health_and_raw_online_signal(self):
         now = int(time.time())
         with session_scope() as session:
@@ -94,16 +104,19 @@ class StatsTest(unittest.TestCase):
                 active_bytes=30, last_seen=now,
             ))
         self.assertFalse(node_user_rows("node-a")[0]["online"])
+        self.assertEqual(node_user_rows("node-a")[0]["presence"], "active")
 
         with session_scope() as session:
             session.get(Total, ("node-a", "xray", "alice")).online = True
         self.assertTrue(node_user_rows("node-a")[0]["online"])
+        self.assertEqual(node_user_rows("node-a")[0]["presence"], "online")
 
         with session_scope() as session:
             session.get(Health, ("node-a", "xray")).ok = False
         row = node_user_rows("node-a")[0]
         self.assertFalse(row["available"])
         self.assertFalse(row["online"])
+        self.assertEqual(row["presence"], "unknown")
 
     def test_node_history_limits_grouped_poll_intervals(self):
         with session_scope() as session:

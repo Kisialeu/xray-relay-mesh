@@ -44,6 +44,15 @@ def _total_dict(item, available=True):
         and int(item.active_since) <= now - ACTIVE_DURATION
         and int(item.active_bytes) >= MIN_ACTIVITY_BYTES
     )
+    online = bool(item.online) and recently_seen and continuously_active
+    if not available:
+        presence = "unknown"
+    elif online:
+        presence = "online"
+    elif item.active:
+        presence = "active"
+    else:
+        presence = "offline"
     return {
         "node": item.node,
         "protocol": item.protocol,
@@ -51,10 +60,11 @@ def _total_dict(item, available=True):
         "uplink": item.uplink,
         "downlink": item.downlink,
         "total": item.uplink + item.downlink,
-        "online": bool(item.online) and recently_seen and continuously_active,
+        "online": online,
         "reported_online": bool(item.online),
         "available": available,
         "active": available and bool(item.active),
+        "presence": presence,
         "last_seen": item.last_seen,
         "last_online": item.last_online,
     }
