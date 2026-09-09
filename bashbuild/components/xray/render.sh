@@ -186,13 +186,13 @@ render_xray_config_json() {
             {
               "protocol": "freedom",
               "tag": "direct",
-              "settings": {"domainStrategy": "UseIPv4"},
               "streamSettings": {
                 "sockopt": {
                   "tcpFastOpen": true,
                   "tcpKeepAliveInterval": 30,
                   "tcpcongestion": "bbr",
                   "tcpUserTimeout": 10000,
+                  "domainStrategy": "UseIPv4",
                   "mark": 0
                 }
               }
