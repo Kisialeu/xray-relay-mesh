@@ -17,7 +17,7 @@
       <div class="topbar-meta">
         <span id="connection-state" class="status-pill pending">CONNECTING</span>
         <span id="last-refresh" class="refresh-time">Waiting for data</span>
-        <label class="range-control"><span>Period</span><select id="time-range"><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="2592000">30 days</option><option value="7776000">90 days</option></select></label>
+        <label class="range-control"><span>Period</span><select id="time-range"><option value="3600" selected>1 hour</option><option value="86400">24 hours</option><option value="604800">7 days</option><option value="2592000">30 days</option><option value="7776000">90 days</option></select></label>
       </div>
     </header>
 
@@ -26,7 +26,7 @@
     <section class="metric-grid" aria-label="Summary">
       <article class="metric-card accent-blue"><span class="metric-icon">01</span><span class="metric-label">Transferred</span><strong id="metric-total">-</strong><span class="metric-note" id="metric-range-note">across all nodes</span></article>
       <article class="metric-card accent-purple"><span class="metric-icon">02</span><span class="metric-label">Throughput</span><strong id="metric-rate">-</strong><span class="metric-note">latest complete interval</span></article>
-      <article class="metric-card accent-green"><span class="metric-icon">03</span><span class="metric-label">Users online</span><strong id="metric-online">-</strong><span class="metric-note" id="metric-users-note">- tracked users</span></article>
+      <article class="metric-card accent-green"><span class="metric-icon">03</span><span class="metric-label">Confirmed online</span><strong id="metric-online">-</strong><span class="metric-note" id="metric-users-note">- tracked users</span></article>
       <article class="metric-card accent-amber"><span class="metric-icon">04</span><span class="metric-label">Node health</span><strong id="metric-nodes">-</strong><span class="metric-note">healthy protocol endpoints</span></article>
     </section>
 
@@ -54,8 +54,14 @@
     </div>
 
     <section class="panel users-panel">
-      <div class="panel-heading users-heading"><div><p class="eyebrow">ACCOUNTS</p><h2>User activity</h2></div><div class="table-controls"><label class="search-box"><span class="sr-only">Filter users</span><input id="user-filter" type="search" placeholder="Search user or node" autocomplete="off"></label><label class="range-control"><span class="sr-only">Filter status</span><select id="status-filter"><option value="all">All states</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">Unknown</option></select></label></div></div>
-      <div class="table-wrap"><table><thead><tr><th><button class="sort-button" data-sort="user">User</button></th><th>Nodes</th><th>Protocols</th><th><button class="sort-button active descending" data-sort="period_total">Selected period</button></th><th>Share</th><th><button class="sort-button" data-sort="total">Lifetime</button></th><th>Online</th><th>Online on</th><th>Activity</th><th><button class="sort-button" data-sort="last_seen">Last seen</button></th></tr></thead><tbody id="users"><tr><td colspan="10" class="empty">Loading user traffic...</td></tr></tbody></table></div>
+      <div class="panel-heading users-heading"><div><p class="eyebrow">ACCOUNTS</p><h2>User activity</h2></div><div class="table-controls"><label class="search-box"><span class="sr-only">Filter users</span><input id="user-filter" type="search" placeholder="Search user or node" autocomplete="off"></label><label class="range-control"><span class="sr-only">Filter status</span><select id="status-filter"><option value="all">All states</option><option value="online">Online</option><option value="active">Active</option><option value="offline">Offline</option><option value="unknown">Unknown</option></select></label></div></div>
+      <div class="presence-guide" aria-label="Presence state definitions">
+        <span><b class="presence-badge online">Online</b> confirmed connection with sustained traffic</span>
+        <span><b class="presence-badge active">Active</b> traffic in the latest poll, online criteria not all met</span>
+        <span><b class="presence-badge offline">Offline</b> reachable telemetry, no confirmed session</span>
+        <span><b class="presence-badge unknown">Unknown</b> telemetry unavailable</span>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th><button class="sort-button" data-sort="user">User</button></th><th>Status</th><th>Last node</th><th><button class="sort-button" data-sort="last_online">Last online</button></th><th><button class="sort-button active descending" data-sort="period_total">Selected period</button></th><th><button class="sort-button" data-sort="total">Lifetime</button></th></tr></thead><tbody id="users"><tr><td colspan="6" class="empty">Loading user traffic...</td></tr></tbody></table></div>
       <div id="users-mobile" class="mobile-user-list" aria-label="Users"></div>
     </section>
 

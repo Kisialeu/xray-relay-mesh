@@ -9,7 +9,7 @@
     2592000: { label: "30 days", bucket: 14400 },
     7776000: { label: "90 days", bucket: 43200 }
   };
-  const state = { users: [], refreshMs: 15000, rangeSeconds: 86400, sortKey: "period_total", sortDirection: -1 };
+  const state = { users: [], refreshMs: 15000, rangeSeconds: 3600, sortKey: "period_total", sortDirection: -1 };
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char]));
@@ -28,6 +28,31 @@
   function date(value) {
     if (!value) return "-";
     return new Date(Number(value) * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function relativeDate(value) {
+    if (!value) return "Never";
+    const seconds = Math.max(0, Math.round(Date.now() / 1000 - Number(value)));
+    if (seconds < 10) return "Just now";
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return date(value);
+  }
+
+  function timeHtml(value) {
+    if (!value) return '<span class="muted">Never</span>';
+    const timestamp = Number(value);
+    return `<time datetime="${new Date(timestamp * 1000).toISOString()}" title="${escapeHtml(date(timestamp))}">${escapeHtml(relativeDate(timestamp))}</time>`;
+  }
+
+  function presenceLabel(presence) {
+    return presence === "online" ? "Online" : presence === "active" ? "Active" : presence === "unknown" ? "Unknown" : "Offline";
+  }
+
+  function presenceBadge(presence) {
+    return `<span class="presence-badge ${presence}">${presenceLabel(presence)}</span>`;
   }
 
   function setConnection(status, text) {
@@ -115,7 +140,8 @@
       const current = grouped.get(item.user) || {
         user: item.user, nodes: [], protocols: [], total: 0, uplink: 0, downlink: 0,
         period_total: 0, period_uplink: 0, period_downlink: 0,
-        online: false, online_nodes: [], active: false, available: false, last_seen: 0
+        online: false, online_nodes: [], active: false, available: false,
+        last_seen: 0, last_seen_node: "", last_online: 0, last_online_node: "", last_node: ""
       };
       current.nodes.push(item.node);
       current.protocols.push(item.protocol);
@@ -129,13 +155,24 @@
       if (item.online) current.online_nodes.push(item.node);
       current.active = current.active || Boolean(item.active);
       current.available = current.available || Boolean(item.available);
-      current.last_seen = Math.max(current.last_seen, Number(item.last_seen || 0));
+      const itemLastSeen = Number(item.last_seen || 0);
+      if (itemLastSeen > current.last_seen || (itemLastSeen === current.last_seen && (!current.last_seen_node || item.node < current.last_seen_node))) {
+        current.last_seen_node = item.node;
+      }
+      current.last_seen = Math.max(current.last_seen, itemLastSeen);
+      const itemLastOnline = Number(item.last_online || 0);
+      if (itemLastOnline > current.last_online || (itemLastOnline === current.last_online && itemLastOnline && (!current.last_online_node || item.node < current.last_online_node))) {
+        current.last_online_node = item.node;
+      }
+      current.last_online = Math.max(current.last_online, itemLastOnline);
       grouped.set(item.user, current);
     });
     return [...grouped.values()].map((item) => {
       item.nodes = [...new Set(item.nodes)].sort();
       item.protocols = [...new Set(item.protocols)].sort();
       item.online_nodes = [...new Set(item.online_nodes)].sort();
+      item.last_node = item.last_online_node || item.last_seen_node;
+      item.presence = item.online ? "online" : (item.active ? "active" : (item.available ? "offline" : "unknown"));
       return item;
     });
   }
@@ -184,7 +221,7 @@
     const periodTotal = users.reduce((sum, user) => sum + user.period_total, 0);
     const visible = users.filter((user) => {
       const textMatch = !filter || `${user.user} ${user.nodes.join(" ")}`.toLowerCase().includes(filter);
-      const userStatus = !user.available ? "unknown" : (user.online ? "online" : "offline");
+      const userStatus = user.presence;
       return textMatch && (status === "all" || status === userStatus);
     }).sort((left, right) => {
       const comparison = state.sortKey === "user"
@@ -193,20 +230,19 @@
       return comparison * state.sortDirection || left.user.localeCompare(right.user);
     });
     target.innerHTML = visible.length ? visible.map((user) => `<tr>
-      <td><a class="user-link" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">${escapeHtml(user.user)}</a></td>
-      <td>${user.nodes.map(escapeHtml).join(", ")}</td>
-      <td><span class="protocol-badge-row">${user.protocols.map((protocol) => `<span class="protocol-badge">${escapeHtml(protocol)}</span>`).join("")}</span></td>
-      <td>${bytes(user.period_total)}</td><td>${periodTotal ? `${(user.period_total / periodTotal * 100).toFixed(1)}%` : "-"}</td><td>${bytes(user.total)}</td>
-      <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td><td class="${user.online ? "yes" : "muted"}">${user.online_nodes.length ? user.online_nodes.map(escapeHtml).join(", ") : "-"}</td><td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
-    </tr>`).join("") : `<tr><td colspan="10" class="empty">No matching users.</td></tr>`;
+      <td><a class="user-link" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">${escapeHtml(user.user)}</a><span class="table-subtext">${user.nodes.length} node${user.nodes.length === 1 ? "" : "s"} · ${user.protocols.map(escapeHtml).join(", ")}</span></td>
+      <td>${presenceBadge(user.presence)}${user.online_nodes.length ? `<span class="table-subtext">${user.online_nodes.map(escapeHtml).join(", ")}</span>` : ""}</td>
+      <td>${user.last_node ? `<a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(user.last_node)}">${escapeHtml(user.last_node)}</a>` : '<span class="muted">-</span>'}</td>
+      <td>${timeHtml(user.last_online)}</td>
+      <td>${bytes(user.period_total)}<span class="table-subtext">${periodTotal ? `${(user.period_total / periodTotal * 100).toFixed(1)}% of traffic` : "no traffic"}</span></td>
+      <td>${bytes(user.total)}</td>
+    </tr>`).join("") : `<tr><td colspan="6" class="empty">No matching users.</td></tr>`;
     if (mobileTarget) {
       mobileTarget.innerHTML = visible.length ? visible.map((user) => {
-        const status = !user.available ? "unknown" : (user.online ? "online" : "offline");
-        const activity = !user.available ? "unknown" : (user.active ? "active" : "idle");
         return `<a class="mobile-user-card" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">
-          <div class="mobile-user-head"><strong>${escapeHtml(user.user)}</strong><span class="state ${status === "online" ? "ok" : (status === "offline" ? "bad" : "unknown")}">${status}</span></div>
+          <div class="mobile-user-head"><strong>${escapeHtml(user.user)}</strong>${presenceBadge(user.presence)}</div>
           <div class="mobile-user-meta">${user.nodes.map(escapeHtml).join(", ")} <span class="mobile-divider">|</span> ${user.protocols.map(escapeHtml).join(", ")}</div>
-          <div class="mobile-user-stats"><span><b>${bytes(user.period_total)}</b><small>selected</small></span><span><b>${bytes(user.total)}</b><small>lifetime</small></span><span><b>${activity}</b><small>activity</small></span></div>
+          <div class="mobile-user-stats"><span><b>${bytes(user.period_total)}</b><small>selected</small></span><span><b>${escapeHtml(user.last_node || "-")}</b><small>last node</small></span><span><b>${escapeHtml(relativeDate(user.last_online))}</b><small>last online</small></span></div>
         </a>`;
       }).join("") : `<div class="empty">No matching users.</div>`;
     }
@@ -248,10 +284,10 @@
     const dots = available.map((sample) => {
       const index = samples.indexOf(sample);
       const title = `${date(sample.ts)} - up ${bytes(sample.uplink)}, down ${bytes(sample.downlink)}`;
-      return `<circle cx="${x(index)}" cy="${y(sample.uplink)}" r="2.5" fill="#43a5ff"><title>${escapeHtml(title)}</title></circle><circle cx="${x(index)}" cy="${y(sample.downlink)}" r="2.5" fill="#9b8cff"><title>${escapeHtml(title)}</title></circle>`;
+      return `<circle cx="${x(index)}" cy="${y(sample.uplink)}" r="2.5" fill="#5b9cff"><title>${escapeHtml(title)}</title></circle><circle cx="${x(index)}" cy="${y(sample.downlink)}" r="2.5" fill="#d5a35e"><title>${escapeHtml(title)}</title></circle>`;
     }).join("");
     const axis = `<text class="chart-axis-label" x="${left}" y="278">${escapeHtml(date(samples[0].ts))}</text><text class="chart-axis-label" text-anchor="end" x="${right}" y="278">${escapeHtml(date(samples[samples.length - 1].ts))}</text>`;
-    target.innerHTML = `<svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">${grid}${axis}${line("uplink", "#43a5ff")}${line("downlink", "#9b8cff")}${dots}</svg>`;
+    target.innerHTML = `<svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">${grid}${axis}${line("uplink", "#5b9cff")}${line("downlink", "#d5a35e")}${dots}</svg>`;
     const measured = samples.slice(0, -1).filter((sample) => sample.coverage !== null);
     const coverage = measured.length ? measured.reduce((sum, sample) => sum + Number(sample.coverage || 0), 0) / measured.length : null;
     setText(coverageId, coverage === null ? "Historical coverage unknown" : `${(coverage * 100).toFixed(1)}% poll coverage`);
@@ -312,10 +348,11 @@
     const target = document.getElementById("user-nodes-table");
     if (!target) return;
     target.innerHTML = users.length ? users.map((user) => `<tr>
-      <td><a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(user.node)}">${escapeHtml(user.node)}</a></td><td><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td><td>${bytes(user.period_total)}</td><td>${bytes(user.period_uplink)}</td><td>${bytes(user.period_downlink)}</td>
-      <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td>
-      <td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
-    </tr>`).join("") : `<tr><td colspan="8" class="empty">No node traffic recorded for this user.</td></tr>`;
+      <td data-label="Node"><a class="user-link" href="${STATS_BASE}/nodes/${encodeURIComponent(user.node)}">${escapeHtml(user.node)}</a></td>
+      <td data-label="Protocol"><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td>
+      <td data-label="Status">${presenceBadge(user.presence || (!user.available ? "unknown" : user.online ? "online" : user.active ? "active" : "offline"))}</td>
+      <td data-label="Last online">${timeHtml(user.last_online)}</td><td data-label="Last traffic">${timeHtml(user.last_seen)}</td><td data-label="Selected period">${bytes(user.period_total)}</td>
+    </tr>`).join("") : `<tr><td colspan="6" class="empty">No node traffic recorded for this user.</td></tr>`;
     const count = document.getElementById("node-sample-count");
     if (count) count.textContent = `${users.length} stream${users.length === 1 ? "" : "s"}`;
   }
@@ -337,16 +374,15 @@
       const total = nodeUsers.reduce((sum, item) => sum + Number(item.period_total || 0), 0);
       const upload = nodeUsers.reduce((sum, item) => sum + Number(item.period_uplink || 0), 0);
       const download = nodeUsers.reduce((sum, item) => sum + Number(item.period_downlink || 0), 0);
-      const lastSeen = Math.max(...nodeUsers.map((item) => Number(item.last_seen || 0)));
-      const online = nodeUsers.some((item) => item.online);
-      const active = nodeUsers.some((item) => item.active);
+      const aggregate = aggregateUsers(nodeUsers)[0];
       setText("user-total", bytes(total));
-      setText("user-up", bytes(upload));
-      setText("user-down", bytes(download));
+      setText("user-traffic-split", `Up ${bytes(upload)} / down ${bytes(download)}`);
       setText("user-active-nodes", `${analytics.active_nodes} active node${analytics.active_nodes === 1 ? "" : "s"} in ${ranges[requestedRange].label}`);
-      setText("user-last-seen", date(lastSeen));
-      setText("user-nodes", String(nodeUsers.length));
-      setText("user-status", online ? "online on one or more nodes" : (active ? "active recently" : "offline"));
+      setText("user-active-node-count", String(analytics.active_nodes));
+      setText("user-last-seen", relativeDate(aggregate.last_online));
+      setText("user-last-node", `Last node ${aggregate.last_node || "-"}`);
+      setText("user-presence", presenceLabel(aggregate.presence));
+      setText("user-status", aggregate.presence === "online" ? `Confirmed on ${aggregate.online_nodes.join(", ")}` : aggregate.presence === "active" ? "Traffic detected in the latest poll" : aggregate.presence === "unknown" ? "Telemetry is currently unavailable" : "No confirmed session");
       renderUserNodes(nodeUsers);
       renderTrafficBreakdown(nodeUsers, "node", "user-node-breakdown", "/nodes/");
       renderTrafficChart(analytics.traffic, "user-traffic-chart", "user-traffic-coverage");
@@ -358,12 +394,11 @@
     const target = document.getElementById("node-users-table");
     if (!target) return;
     target.innerHTML = users.length ? users.map((user) => `<tr>
-      <td><a class="user-link" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">${escapeHtml(user.user)}</a></td>
-      <td><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td>
-      <td>${bytes(user.period_total)}</td><td>${bytes(user.period_uplink)}</td><td>${bytes(user.period_downlink)}</td>
-      <td class="${!user.available ? "unknown" : (user.online ? "yes" : "no")}">${!user.available ? "unknown" : (user.online ? "yes" : "no")}</td>
-      <td class="${!user.available ? "unknown" : (user.active ? "active" : "muted")}">${!user.available ? "unknown" : (user.active ? "active" : "idle")}</td><td>${date(user.last_seen)}</td>
-    </tr>`).join("") : `<tr><td colspan="8" class="empty">No users recorded on this node.</td></tr>`;
+      <td data-label="User"><a class="user-link" href="${STATS_BASE}/users/${encodeURIComponent(user.user)}">${escapeHtml(user.user)}</a></td>
+      <td data-label="Protocol"><span class="protocol-badge">${escapeHtml(user.protocol)}</span></td>
+      <td data-label="Status">${presenceBadge(user.presence || (!user.available ? "unknown" : user.online ? "online" : user.active ? "active" : "offline"))}</td>
+      <td data-label="Last online">${timeHtml(user.last_online)}</td><td data-label="Last traffic">${timeHtml(user.last_seen)}</td><td data-label="Selected period">${bytes(user.period_total)}</td>
+    </tr>`).join("") : `<tr><td colspan="6" class="empty">No users recorded on this node.</td></tr>`;
     setText("node-user-count", `${users.length} user${users.length === 1 ? "" : "s"}`);
   }
 
@@ -384,7 +419,7 @@
     if (!target) return;
     const recent = samples.slice(-48).reverse();
     target.innerHTML = recent.length ? recent.map((sample) => `<tr>
-      <td>${date(sample.ts)}</td><td>${bytes(sample.uplink)}</td><td>${bytes(sample.downlink)}</td><td>${bytes(sample.total)}</td>
+      <td data-label="Time">${date(sample.ts)}</td><td data-label="Upload">${bytes(sample.uplink)}</td><td data-label="Download">${bytes(sample.downlink)}</td><td data-label="Total">${bytes(sample.total)}</td>
     </tr>`).join("") : `<tr><td colspan="4" class="empty">No traffic samples recorded on this node.</td></tr>`;
   }
 

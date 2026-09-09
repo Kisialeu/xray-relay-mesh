@@ -213,3 +213,7 @@ Online status requires current traffic-counter activity for at least
 during that continuous period, and a `last_seen` timestamp within
 `STATS_ONLINE_WINDOW`. The node must be healthy and the raw node `/online`
 signal must also report the user.
+
+`last_online` records the latest successful poll where all of those online
+criteria were satisfied. `last_seen` records the latest poll with transferred
+traffic; the two timestamps intentionally describe different signals.

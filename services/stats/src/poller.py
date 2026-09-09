@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import delete, select
 
-from config import HTTP_TIMEOUT, LOG, POLL_INTERVAL, RETENTION_DAYS, SSH_KEY, SSH_KNOWN_HOSTS
+from config import ACTIVE_DURATION, HTTP_TIMEOUT, LOG, MIN_ACTIVITY_BYTES, POLL_INTERVAL, RETENTION_DAYS, SSH_KEY, SSH_KNOWN_HOSTS
 from db import session_scope
 from inventory import load_inventory
 from models import Health, PollRun, Previous, Sample, Total
@@ -95,10 +95,16 @@ def accumulate(node, protocol, stats, online):
             else:
                 total.active_since = None
                 total.active_bytes = 0
-            if was_active and not is_active:
-                total.last_online = ts
             total.online = is_online
             total.active = is_active
+            if (
+                is_online
+                and is_active
+                and total.active_since is not None
+                and total.active_since <= ts - ACTIVE_DURATION
+                and total.active_bytes >= MIN_ACTIVITY_BYTES
+            ):
+                total.last_online = ts
 
             if previous is None:
                 session.add(Previous(node=node, protocol=protocol, user_name=user, uplink=cur_up, downlink=cur_down, was_active=is_active))
@@ -112,8 +118,6 @@ def accumulate(node, protocol, stats, online):
         for total in totals:
             if total.user_name in current_users:
                 continue
-            if total.active:
-                total.last_online = ts
             total.online = False
             total.active = False
             total.active_since = None
