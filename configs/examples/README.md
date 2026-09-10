@@ -125,28 +125,28 @@ Example 1 - expose only Swiss over direct TCP:
 }
 ```
 
-Example 2 - expose Astana over direct TCP and UDP:
+Example 2 - expose london over direct TCP and UDP:
 
 ```json
 "subscription_access": {
   "default": "deny",
   "allow": [
-    {"path": "direct", "protocol": "xray", "node": "astana"},
-    {"path": "direct", "protocol": "hysteria", "node": "astana"}
+    {"path": "direct", "protocol": "xray", "node": "london"},
+    {"path": "direct", "protocol": "hysteria", "node": "london"}
   ]
 }
 ```
 
-Example 3 - expose Swiss TCP, Astana UDP, and the relay to Helsinki through
-Astana:
+Example 3 - expose Swiss TCP, london UDP, and the relay to Helsinki through
+london:
 
 ```json
 "subscription_access": {
   "default": "deny",
   "allow": [
     {"path": "direct", "protocol": "xray", "node": "swiss"},
-    {"path": "direct", "protocol": "hysteria", "node": "astana"},
-    {"path": "relay", "entry": "astana", "destination": "helsinki"}
+    {"path": "direct", "protocol": "hysteria", "node": "london"},
+    {"path": "relay", "entry": "london", "destination": "helsinki"}
   ]
 }
 ```
