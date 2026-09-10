@@ -95,7 +95,7 @@ Both keys must exist before deployment. Deployment validates them but never gene
 
 `xray.dns`
 
-- DNS servers used inside the Xray stack.
+- DNS servers used inside the Xray stack. Hysteria uses `dns1` as its UDP resolver.
 
 `xray.users`
 
