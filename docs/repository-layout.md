@@ -1,5 +1,10 @@
 # Repository boundaries
 
+## `mesh.sh`
+
+Stable operator entrypoint. It delegates normalized CLI parsing and execution to
+the framework under `bashbuild/`.
+
 ## `bashbuild/`
 
 The deployment framework. It owns CLI parsing, inventory access, SSH transport, staging, locking, managed-file transactions, Compose reconciliation, and explicit component controllers. It must not contain application source, Docker build contexts, or environment-specific secrets.
@@ -32,6 +37,16 @@ These commands are state-changing and remain separate from routine service deplo
 - `secrets/` - ignored local secret inputs
 
 Configuration files are data, never sourced as shell code.
+
+## `tests/`
+
+Offline unit, integration, and golden-rendering tests. Golden fixtures represent
+deterministic output produced from the example inventories.
+
+## `docs/`
+
+Operator, architecture, repository-boundary, and deployment-transaction
+documentation.
 
 ## `var/`
 
