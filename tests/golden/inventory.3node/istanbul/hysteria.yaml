@@ -14,6 +14,12 @@ auth:
     "Frank": "b00fc7ab-21fe-4d1c-a3ee-928f5036ffee"
     "demo_user": "8cebfbbb-4ef8-4d5a-8f48-546ee58f49ec"
 
+resolver:
+  type: udp
+  udp:
+    addr: "172.29.0.10:53"
+    timeout: 4s
+
 masquerade:
   type: proxy
   proxy:

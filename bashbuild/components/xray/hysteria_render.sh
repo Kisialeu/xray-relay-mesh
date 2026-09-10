@@ -46,7 +46,7 @@ EOF
 # falling back to IPv4 whenever a client's destination resolves to IPv6.
 render_hysteria_config() {
     local file="$1" node="$2"
-    local port tls_domain email masquerade up down users_json userpass_lines obfs_password obfs_block=""
+    local port tls_domain email masquerade up down dns users_json userpass_lines obfs_password obfs_block=""
     local stats_secret stats_port
 
     port=$(inv_node_field "$file" "$node" direct_port)
@@ -55,6 +55,7 @@ render_hysteria_config() {
     masquerade=$(inv_hysteria_masquerade_url "$file")
     up=$(inv_hysteria_up_mbps "$file")
     down=$(inv_hysteria_down_mbps "$file")
+    dns=$(inv_xray_dns1 "$file")
     users_json=$(inv_xray_users_json "$file")
     obfs_password=$(inv_hysteria_obfs_password "$file")
     stats_secret=$(inv_shared_hysteria_stats_secret "$file")
@@ -92,6 +93,12 @@ auth:
   type: userpass
   userpass:
 ${userpass_lines}
+
+resolver:
+  type: udp
+  udp:
+    addr: "${dns}:53"
+    timeout: 4s
 
 masquerade:
   type: proxy
