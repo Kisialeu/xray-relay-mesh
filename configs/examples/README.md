@@ -102,7 +102,12 @@ Both keys must exist before deployment. Deployment validates them but never gene
 - List of subscription users.
 - `uuid`: client UUID
 - `email`: user label used in generated links
-- `hidden_nodes`: optional list of node names hidden from that user
+- `hidden_nodes`: optional per-user node filter. The existing list form, such
+  as `["node-a"]`, hides every protocol and relay link involving those nodes.
+  The object form hides selected protocols, for example
+  `{"node-a": "hysteria"}`. Object values may be `"all"`, `"xray"`,
+  `"hysteria"`, or a list such as `["xray", "hysteria"]`. Hiding `xray` also
+  removes relay links involving that node.
 
 `nodes`
 

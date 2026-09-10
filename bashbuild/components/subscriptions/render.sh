@@ -111,12 +111,20 @@ build_incy_routing_profile() {
 }
 
 user_hidden_on_node() {
-    local file="$1" node_name="$2" email="$3"
-    jq -r --arg email "$email" '
+    local file="$1" node_name="$2" email="$3" protocol="$4"
+    jq -e --arg email "$email" --arg node "$node_name" --arg protocol "$protocol" '
         .xray.users[]
         | select(.email == $email)
-        | .hidden_nodes[]?
-    ' "$file" | grep -Fxq "$node_name"
+        | (.hidden_nodes // []) as $hidden
+        | if ($hidden | type) == "array" then
+            any($hidden[]; . == $node)
+          elif ($hidden | type) == "object" then
+            ($hidden[$node] // null) as $rule
+            | ($rule == "all") or
+              (($rule | type) == "string" and $rule == $protocol) or
+              (($rule | type) == "array" and any($rule[]; . == $protocol))
+          else false end
+    ' "$file" >/dev/null
 }
 
 # Prints "entry_display<TAB>entry_host<TAB>peer_display<TAB>relay_port" for every
@@ -163,11 +171,14 @@ build_all_links() {
 
         while IFS=$'\t' read -r name host port display_name tls_domain; do
             [ -z "$name" ] && continue
-            user_hidden_on_node "$file" "$name" "$email" && continue
-            printf '%s\t%s\n' "$email" \
-                "$(build_vless_link "$uuid" "$host" "$port" "${display_name} direct" "$pubkey" "$sni" "$short_id" "$fp")"
+            if ! user_hidden_on_node "$file" "$name" "$email" xray; then
+                printf '%s\t%s\n' "$email" \
+                    "$(build_vless_link "$uuid" "$host" "$port" "${display_name} direct" "$pubkey" "$sni" "$short_id" "$fp")"
+            fi
 
-            if [ -n "$tls_domain" ] && grep -Fxq "$name" <<< "$hysteria_node_names"; then
+            if [ -n "$tls_domain" ] \
+                && grep -Fxq "$name" <<< "$hysteria_node_names" \
+                && ! user_hidden_on_node "$file" "$name" "$email" hysteria; then
                 printf '%s\t%s\n' "$email" \
                     "$(build_hysteria2_link "$email" "$uuid" "$host" "$port" "$tls_domain" "${display_name} (UDP)" "$hysteria_obfs_password")"
             fi
@@ -175,8 +186,8 @@ build_all_links() {
 
         while IFS=$'\t' read -r entry_name entry_host peer_name relay_port; do
             [ -z "$entry_name" ] && continue
-            user_hidden_on_node "$file" "$entry_name" "$email" && continue
-            user_hidden_on_node "$file" "$peer_name" "$email" && continue
+            user_hidden_on_node "$file" "$entry_name" "$email" xray && continue
+            user_hidden_on_node "$file" "$peer_name" "$email" xray && continue
             printf '%s\t%s\n' "$email" \
                 "$(build_vless_link "$uuid" "$entry_host" "$relay_port" "${peer_name} via ${entry_name}" "$pubkey" "$sni" "$short_id" "$fp")"
         done <<< "$relay_pairs"
@@ -203,16 +214,19 @@ build_all_singbox_outbounds() {
         [ -z "$uuid" ] && continue
         while IFS=$'\t' read -r name host port display_name tls_domain; do
             [ -z "$name" ] && continue
-            user_hidden_on_node "$file" "$name" "$email" && continue
-            printf '%s\t%s\n' "$email" "$(build_singbox_vless_outbound "vless-${name}" "$uuid" "$host" "$port" "$pubkey" "$sni" "$short_id" "$fp")"
-            if [ -n "$tls_domain" ] && grep -Fxq "$name" <<< "$hysteria_node_names"; then
+            if ! user_hidden_on_node "$file" "$name" "$email" xray; then
+                printf '%s\t%s\n' "$email" "$(build_singbox_vless_outbound "vless-${name}" "$uuid" "$host" "$port" "$pubkey" "$sni" "$short_id" "$fp")"
+            fi
+            if [ -n "$tls_domain" ] \
+                && grep -Fxq "$name" <<< "$hysteria_node_names" \
+                && ! user_hidden_on_node "$file" "$name" "$email" hysteria; then
                 printf '%s\t%s\n' "$email" "$(build_singbox_hysteria2_outbound "hysteria-${name}" "$email" "$uuid" "$host" "$port" "$tls_domain" "$hysteria_obfs_password")"
             fi
         done <<< "$direct_nodes"
         while IFS=$'\t' read -r entry_name entry_host peer_name relay_port; do
             [ -z "$entry_name" ] && continue
-            user_hidden_on_node "$file" "$entry_name" "$email" && continue
-            user_hidden_on_node "$file" "$peer_name" "$email" && continue
+            user_hidden_on_node "$file" "$entry_name" "$email" xray && continue
+            user_hidden_on_node "$file" "$peer_name" "$email" xray && continue
             printf '%s\t%s\n' "$email" "$(build_singbox_vless_outbound "vless-${peer_name}-via-${entry_name}" "$uuid" "$entry_host" "$relay_port" "$pubkey" "$sni" "$short_id" "$fp")"
         done <<< "$relay_pairs"
     done < <(jq -r '.xray.users[] | "\(.uuid)\t\(.email)"' "$file")

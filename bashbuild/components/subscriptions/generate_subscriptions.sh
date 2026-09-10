@@ -12,9 +12,10 @@
 # of entry nodes x N instead of N^2 as the mesh scales. Mark a node as a
 # relay entry point by adding that field to it in inventory.json's nodes[].
 #
-# To hide nodes from a specific user, set "hidden_nodes": ["node_name", ...]
-# on that user object in xray.users[]. The generator will skip both direct
-# links and any relay links that would expose those nodes to that user.
+# To hide complete nodes from a user, set "hidden_nodes": ["node_name", ...].
+# For protocol-specific filtering, use "hidden_nodes": {"node_name":
+# "hysteria"}. Object values may be "all", "xray", "hysteria", or a list of
+# protocols. Xray filtering also removes relay links involving that node.
 #
 # Usage: relay-mesh/subs/generate_subscriptions.sh [inventory.json]
 #

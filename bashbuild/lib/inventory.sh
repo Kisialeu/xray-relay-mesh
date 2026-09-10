@@ -36,7 +36,17 @@ inv_validate() {
         all(.xray.users[]?;
             (.uuid | type == "string" and test("^[0-9a-fA-F-]{36}$")) and
             (.email | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._@+-]*$") and (contains("..") | not)) and
-            all(.hidden_nodes[]?; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+            ((.hidden_nodes // []) as $hidden |
+                if ($hidden | type) == "array" then
+                    all($hidden[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+                elif ($hidden | type) == "object" then
+                    all($hidden | to_entries[];
+                        (.key | test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+                        (((.value | type) == "string" and (.value | IN("all", "xray", "hysteria"))) or
+                         ((.value | type) == "array" and (.value | length) > 0 and
+                          all(.value[]; type == "string" and IN("xray", "hysteria"))))
+                    )
+                else false end)
         ) and
         ((.xray.reality.private_key // "") | test("^[A-Za-z0-9_-]*$")) and
         ((.xray.reality.public_key // "") | test("^[A-Za-z0-9_-]*$")) and
