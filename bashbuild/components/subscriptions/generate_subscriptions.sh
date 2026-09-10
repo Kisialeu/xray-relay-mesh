@@ -16,6 +16,8 @@
 # For protocol-specific filtering, use "hidden_nodes": {"node_name":
 # "hysteria"}. Object values may be "all", "xray", "hysteria", or a list of
 # protocols. Xray filtering also removes relay links involving that node.
+# For explicit allowlists, set subscription_access.default to "deny" and add
+# direct or relay rules to subscription_access.allow. Deny rules take precedence.
 #
 # Usage: relay-mesh/subs/generate_subscriptions.sh [inventory.json]
 #

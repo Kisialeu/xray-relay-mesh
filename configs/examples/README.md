@@ -108,6 +108,62 @@ Both keys must exist before deployment. Deployment validates them but never gene
   `{"node-a": "hysteria"}`. Object values may be `"all"`, `"xray"`,
   `"hysteria"`, or a list such as `["xray", "hysteria"]`. Hiding `xray` also
   removes relay links involving that node.
+- `subscription_access`: optional subscription visibility policy. Set `default`
+  to `"deny"` for an allowlist or `"allow"` for a denylist. Direct rules require
+  `path`, `protocol`, and `node`. Relay rules require `path`, `entry`, and
+  `destination`; the entry node must have `is_relay_entry: true`. Rules in
+  `deny` take precedence over rules in `allow`.
+
+Example 1 - expose only Swiss over direct TCP:
+
+```json
+"subscription_access": {
+  "default": "deny",
+  "allow": [
+    {"path": "direct", "protocol": "xray", "node": "swiss"}
+  ]
+}
+```
+
+Example 2 - expose Astana over direct TCP and UDP:
+
+```json
+"subscription_access": {
+  "default": "deny",
+  "allow": [
+    {"path": "direct", "protocol": "xray", "node": "astana"},
+    {"path": "direct", "protocol": "hysteria", "node": "astana"}
+  ]
+}
+```
+
+Example 3 - expose Swiss TCP, Astana UDP, and the relay to Helsinki through
+Astana:
+
+```json
+"subscription_access": {
+  "default": "deny",
+  "allow": [
+    {"path": "direct", "protocol": "xray", "node": "swiss"},
+    {"path": "direct", "protocol": "hysteria", "node": "astana"},
+    {"path": "relay", "entry": "astana", "destination": "helsinki"}
+  ]
+}
+```
+
+This policy changes generated subscriptions only. It does not change server-side
+credentials or protocol authorization.
+
+Validate the inventory and preview the exact profile labels visible to each
+user without printing connection URLs, hosts, or UUIDs:
+
+```bash
+./mesh.sh subscription access --inventory configs/inventory.json
+```
+
+The same report is available under `Subscriptions and Caddy` in the interactive
+UI. The underlying script remains directly executable at
+`bashbuild/scripts/subscription-access-report.sh`.
 
 `nodes`
 
