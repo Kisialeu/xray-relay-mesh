@@ -21,6 +21,21 @@ inv_validate() {
         "$file" >/dev/null 2>&1 || { error "inventory malformed or has no nodes: $file"; return 1; }
 
     jq -e '
+        def valid_subscription_rule($nodes):
+            . as $rule
+            | if type != "object" then false
+              elif .path == "direct" then
+                ((keys - ["node", "path", "protocol"]) | length == 0) and
+                (.protocol | type == "string" and IN("xray", "hysteria")) and
+                (.node | type == "string") and ($nodes | map(.name) | index($rule.node) != null)
+              elif .path == "relay" then
+                ((keys - ["destination", "entry", "path"]) | length == 0) and
+                (.entry | type == "string") and
+                ($nodes | any(.name == $rule.entry and (.is_relay_entry // false) == true)) and
+                (.destination | type == "string") and ($nodes | map(.name) | index($rule.destination) != null) and
+                ($rule.entry != $rule.destination)
+              else false end;
+        . as $inventory |
         ((.environment // "development") | IN("development", "staging", "production")) and
         all(.nodes[];
             (.id | type == "number" and floor == . and . >= 0) and
@@ -36,7 +51,28 @@ inv_validate() {
         all(.xray.users[]?;
             (.uuid | type == "string" and test("^[0-9a-fA-F-]{36}$")) and
             (.email | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._@+-]*$") and (contains("..") | not)) and
-            all(.hidden_nodes[]?; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+            ((.hidden_nodes // []) as $hidden |
+                if ($hidden | type) == "array" then
+                    all($hidden[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+                elif ($hidden | type) == "object" then
+                    all($hidden | to_entries[];
+                        (.key | test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+                        (((.value | type) == "string" and (.value | IN("all", "xray", "hysteria"))) or
+                         ((.value | type) == "array" and (.value | length) > 0 and
+                          all(.value[]; type == "string" and IN("xray", "hysteria"))))
+                    )
+                else false end) and
+            ((.subscription_access // null) as $access |
+                if $access == null then true
+                elif ($access | type) != "object" then false
+                else
+                    (($access | keys) - ["allow", "default", "deny"] | length == 0) and
+                    ($access.default | type == "string" and IN("allow", "deny")) and
+                    (($access.allow // []) | type == "array") and
+                    (($access.deny // []) | type == "array") and
+                    all(($access.allow // [])[]; valid_subscription_rule($inventory.nodes)) and
+                    all(($access.deny // [])[]; valid_subscription_rule($inventory.nodes))
+                end)
         ) and
         ((.xray.reality.private_key // "") | test("^[A-Za-z0-9_-]*$")) and
         ((.xray.reality.public_key // "") | test("^[A-Za-z0-9_-]*$")) and

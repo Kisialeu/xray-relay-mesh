@@ -166,6 +166,11 @@ mesh_command_subscription_verify() {
     subscriptions_verify_local "$source_dir"
 }
 
+mesh_command_subscription_access() {
+    local inventory="$1"
+    "$MESH_DIR/bashbuild/scripts/subscription-access-report.sh" "$inventory"
+}
+
 # Registrable-domain heuristic: strips the leftmost label unless the domain
 # already has 2 labels. Good enough for this project's real domains
 # (*.kisialeu.com, *.paravozik.click) - inventory has no explicit zone field

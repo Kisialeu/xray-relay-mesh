@@ -68,7 +68,7 @@ assert_not_equal() {
     pass "$description"
 }
 
-printf '1..42\n'
+printf '1..53\n'
 assert_success "inventory validation: two nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.2node.json"
 assert_success "inventory validation: three nodes" inv_validate "$ROOT_DIR/configs/examples/inventory.3node.json"
 
@@ -85,6 +85,135 @@ assert_failure "production inventory rejects latest images" inv_validate "$TEST_
 assert_failure "CLI rejects unknown commands" env INVENTORY="$ROOT_DIR/configs/examples/inventory.2node.json" "$ROOT_DIR/mesh.sh" unknown-command
 compare_golden_inventory "$ROOT_DIR/configs/examples/inventory.2node.json"
 compare_golden_inventory "$ROOT_DIR/configs/examples/inventory.3node.json"
+
+jq '
+    .xray.reality.public_key = "fixture-public-key"
+    | (.xray.users[] | select(.email == "Frank") | .hidden_nodes) = {"frankfurt": "hysteria"}
+' "$ROOT_DIR/configs/examples/inventory.2node.json" > "$TEST_TMP/protocol-hidden-node.json"
+assert_success "inventory accepts protocol-specific hidden node filters" \
+    inv_validate "$TEST_TMP/protocol-hidden-node.json"
+
+filtered_links=$(build_all_links "$TEST_TMP/protocol-hidden-node.json")
+filtered_singbox=$(build_all_singbox_outbounds "$TEST_TMP/protocol-hidden-node.json")
+frank_links=$(printf '%s\n' "$filtered_links" | awk -F '\t' '$1 == "Frank" {print $2}')
+frank_singbox=$(printf '%s\n' "$filtered_singbox" | awk -F '\t' '$1 == "Frank" {print $2}' | jq -s '.')
+printf '%s\n' "$frank_links" | grep -F 'vless://' >/dev/null \
+    && ! printf '%s\n' "$frank_links" | grep -F 'hysteria2://' >/dev/null \
+    && printf '%s\n' "$frank_singbox" | jq -e '
+        any(.[]; .tag == "vless-frankfurt")
+        and (any(.[]; .tag == "hysteria-frankfurt") | not)
+    ' >/dev/null \
+    && user_hidden_on_node "$TEST_TMP/protocol-hidden-node.json" suomi demo_user xray \
+    && user_hidden_on_node "$TEST_TMP/protocol-hidden-node.json" suomi demo_user hysteria \
+    || fail "protocol-specific filters preserve Xray and legacy arrays hide every protocol"
+pass "protocol-specific filters preserve Xray and legacy arrays hide every protocol"
+
+printf '%s\n' "$filtered_links" | grep -F '#Germany%20%28tcp%29' >/dev/null \
+    && printf '%s\n' "$filtered_links" | grep -F '#Germany%20%28udp%29' >/dev/null \
+    && printf '%s\n' "$filtered_links" | grep -E '#[^[:space:]]*%20via%20[^[:space:]]*%20%28relay%29$' >/dev/null \
+    && ! printf '%s\n' "$filtered_links" | grep -E '#[^[:space:]]*(%20direct|%28UDP%29)$' >/dev/null \
+    || fail "subscription labels identify tcp, udp, and relay profiles"
+pass "subscription labels identify tcp, udp, and relay profiles"
+
+jq '(.xray.users[0].hidden_nodes) = {"frankfurt": "udp"}' \
+    "$TEST_TMP/protocol-hidden-node.json" > "$TEST_TMP/invalid-hidden-protocol.json"
+assert_failure "inventory rejects invalid hidden node protocols" \
+    inv_validate "$TEST_TMP/invalid-hidden-protocol.json"
+
+jq '
+    .xray.reality.public_key = "fixture-public-key"
+    | (.xray.users[] | select(.email == "Frank") | .subscription_access) = {
+        "default": "deny",
+        "allow": [
+            {"path": "direct", "protocol": "xray", "node": "suomi"}
+        ]
+      }
+' "$ROOT_DIR/configs/examples/inventory.3node.json" > "$TEST_TMP/access-tcp-only.json"
+tcp_only_links=$(build_all_links "$TEST_TMP/access-tcp-only.json")
+tcp_only_singbox=$(build_all_singbox_outbounds "$TEST_TMP/access-tcp-only.json")
+frank_tcp_only_links=$(printf '%s\n' "$tcp_only_links" | awk -F '\t' '$1 == "Frank" {print $2}')
+frank_tcp_only_singbox=$(printf '%s\n' "$tcp_only_singbox" | awk -F '\t' '$1 == "Frank" {print $2}' | jq -s '.')
+[ "$(printf '%s\n' "$frank_tcp_only_links" | grep -c '://')" -eq 1 ] \
+    && printf '%s\n' "$frank_tcp_only_links" | grep -F 'vless://' | grep -F '#Helsinki%20%28tcp%29' >/dev/null \
+    && printf '%s\n' "$frank_tcp_only_singbox" | jq -e 'length == 1 and .[0].tag == "vless-suomi"' >/dev/null \
+    || fail "default-deny access exposes one allowed TCP profile"
+pass "default-deny access exposes one allowed TCP profile"
+
+jq '
+    .xray.reality.public_key = "fixture-public-key"
+    | (.xray.users[] | select(.email == "Frank") | .subscription_access) = {
+        "default": "deny",
+        "allow": [
+            {"path": "direct", "protocol": "xray", "node": "istanbul"},
+            {"path": "direct", "protocol": "hysteria", "node": "istanbul"}
+        ]
+      }
+' "$ROOT_DIR/configs/examples/inventory.3node.json" > "$TEST_TMP/access-tcp-udp.json"
+tcp_udp_links=$(build_all_links "$TEST_TMP/access-tcp-udp.json")
+tcp_udp_singbox=$(build_all_singbox_outbounds "$TEST_TMP/access-tcp-udp.json")
+frank_tcp_udp_links=$(printf '%s\n' "$tcp_udp_links" | awk -F '\t' '$1 == "Frank" {print $2}')
+frank_tcp_udp_singbox=$(printf '%s\n' "$tcp_udp_singbox" | awk -F '\t' '$1 == "Frank" {print $2}' | jq -s '.')
+[ "$(printf '%s\n' "$frank_tcp_udp_links" | grep -c '://')" -eq 2 ] \
+    && printf '%s\n' "$frank_tcp_udp_links" | grep -F '#Turkey%20%28tcp%29' >/dev/null \
+    && printf '%s\n' "$frank_tcp_udp_links" | grep -F '#Turkey%20%28udp%29' >/dev/null \
+    && printf '%s\n' "$frank_tcp_udp_singbox" | jq -e '
+        length == 2
+        and any(.[]; .tag == "vless-istanbul")
+        and any(.[]; .tag == "hysteria-istanbul")
+    ' >/dev/null \
+    || fail "default-deny access exposes allowed TCP and UDP profiles"
+pass "default-deny access exposes allowed TCP and UDP profiles"
+
+jq '
+    .xray.reality.public_key = "fixture-public-key"
+    | (.nodes[] | select(.name == "istanbul") | .is_relay_entry) = true
+    | (.xray.users[] | select(.email == "Frank") | .subscription_access) = {
+        "default": "deny",
+        "allow": [
+            {"path": "direct", "protocol": "xray", "node": "suomi"},
+            {"path": "direct", "protocol": "hysteria", "node": "istanbul"},
+            {"path": "relay", "entry": "istanbul", "destination": "suomi"}
+        ]
+      }
+' "$ROOT_DIR/configs/examples/inventory.3node.json" > "$TEST_TMP/default-deny-access.json"
+assert_success "inventory accepts default-deny subscription access" \
+    inv_validate "$TEST_TMP/default-deny-access.json"
+
+access_links=$(build_all_links "$TEST_TMP/default-deny-access.json")
+access_singbox=$(build_all_singbox_outbounds "$TEST_TMP/default-deny-access.json")
+frank_access_links=$(printf '%s\n' "$access_links" | awk -F '\t' '$1 == "Frank" {print $2}')
+frank_access_singbox=$(printf '%s\n' "$access_singbox" | awk -F '\t' '$1 == "Frank" {print $2}' | jq -s '.')
+[ "$(printf '%s\n' "$frank_access_links" | grep -c '://')" -eq 3 ] \
+    && printf '%s\n' "$frank_access_links" | grep -F 'vless://' | grep -F '#Helsinki%20%28tcp%29' >/dev/null \
+    && printf '%s\n' "$frank_access_links" | grep -F 'hysteria2://' | grep -F '#Turkey%20%28udp%29' >/dev/null \
+    && printf '%s\n' "$frank_access_links" | grep -F 'vless://' | grep -F '#Helsinki%20via%20Turkey%20%28relay%29' >/dev/null \
+    && ! printf '%s\n' "$frank_access_links" | grep -F '#Turkey%20%28tcp%29' >/dev/null \
+    && printf '%s\n' "$frank_access_singbox" | jq -e '
+        length == 3
+        and any(.[]; .tag == "vless-suomi")
+        and any(.[]; .tag == "hysteria-istanbul")
+        and any(.[]; .tag == "vless-suomi-via-istanbul")
+    ' >/dev/null \
+    || fail "default-deny access combines TCP, UDP, and an exact relay edge"
+pass "default-deny access combines TCP, UDP, and an exact relay edge"
+
+access_report=$("$ROOT_DIR/mesh.sh" subscription access --inventory "$TEST_TMP/default-deny-access.json")
+printf '%s\n' "$access_report" | grep -F 'Helsinki (tcp)' >/dev/null \
+    && printf '%s\n' "$access_report" | grep -F 'Turkey (udp)' >/dev/null \
+    && printf '%s\n' "$access_report" | grep -F 'Helsinki via Turkey (relay)' >/dev/null \
+    && ! printf '%s\n' "$access_report" | grep -E '(://|fixture-public-key|11111111-1111-1111-1111-111111111111)' >/dev/null \
+    || fail "subscription access report validates and omits connection secrets"
+pass "subscription access report validates and omits connection secrets"
+
+jq '(.xray.users[0].subscription_access.allow[2].destination) = "unknown-node"' \
+    "$TEST_TMP/default-deny-access.json" > "$TEST_TMP/invalid-subscription-access.json"
+assert_failure "inventory rejects access rules with unknown nodes" \
+    inv_validate "$TEST_TMP/invalid-subscription-access.json"
+
+jq '(.xray.users[0].subscription_access.allow[2].entry) = "frankfurt"' \
+    "$TEST_TMP/default-deny-access.json" > "$TEST_TMP/invalid-relay-entry.json"
+assert_failure "inventory rejects access rules using a non-relay entry node" \
+    inv_validate "$TEST_TMP/invalid-relay-entry.json"
 
 mkdir -p "$TEST_TMP/manifest/a" "$TEST_TMP/manifest/b"
 printf 'first\n' > "$TEST_TMP/manifest/a/value"
@@ -294,6 +423,8 @@ pass "Caddy exposes INCY metadata and x-client fallback"
 
 grep -F '4) Verify generated subscriptions' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
     && grep -F 'mesh_ui_exec subscription verify' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
+    && grep -F '5) Show subscription access report' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
+    && grep -F 'mesh_ui_exec subscription access' "$ROOT_DIR/bashbuild/lib/ui.sh" >/dev/null \
     || fail "interactive subscriptions menu exposes local verification"
 pass "interactive subscriptions menu exposes local verification"
 
