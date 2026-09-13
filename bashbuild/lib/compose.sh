@@ -15,9 +15,9 @@ shift 2
 cd "$deploy"
 if [ "$mode" = pull ]; then sudo docker compose pull --quiet "$@"; fi
 if [ "$mode" = build ]; then
-    sudo docker compose up -d --build --remove-orphans "$@"
+    sudo docker compose up -d --build --force-recreate --remove-orphans "$@"
 else
-    sudo docker compose up -d --remove-orphans "$@"
+    sudo docker compose up -d --force-recreate --remove-orphans "$@"
 fi
 REMOTE
 }

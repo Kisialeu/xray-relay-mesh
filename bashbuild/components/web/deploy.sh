@@ -144,9 +144,9 @@ sudo chown root:101 "$deploy_dir/htpasswd"
 sudo chmod 0640 "$deploy_dir/htpasswd"
 cd "$deploy_dir"
 docker compose build certbot
-docker compose run --rm --entrypoint certbot certbot certonly --dns-route53 --non-interactive --agree-tos --email "$email" --domain "$domain" --keep-until-expiring
+docker compose run --rm -T --interactive=false --entrypoint certbot certbot certonly --dns-route53 --non-interactive --agree-tos --email "$email" --domain "$domain" --keep-until-expiring
 docker compose build --pull web-app stats-web certbot
-docker compose run --rm --no-deps --entrypoint nginx stats-web -t
+docker compose run --rm -T --interactive=false --no-deps --entrypoint nginx stats-web -t
 docker compose up -d --wait --wait-timeout 60 --force-recreate --remove-orphans web-app stats-web certbot
 REMOTE
 mesh_container_running "$HOST" xray-stats-web \
