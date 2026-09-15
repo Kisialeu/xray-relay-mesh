@@ -136,7 +136,7 @@ render_xray_config_json() {
                   "dest": "127.0.0.1:4431",
                   "serverNames": [$sni],
                   "privateKey": $private_key,
-                  "shortIds": [$short_id, "a1b2c3d4e5f60718", "deadbeef12345678", "0102030405060708"],
+                  "shortIds": [$short_id, "a1b2c3d4e5f60718", "deadbeef12345678", "0101010101010101"],
                   "minClientVer": "0.0.0",
                   "maxTimeDiff": 60000,
                   "padding": true,

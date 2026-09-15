@@ -1,0 +1,190 @@
+{
+  "_comment": "Source of truth for the whole stack (Xray direct + HAProxy relay mesh). Adding/removing a node = editing this file only. Reserved relay port range: 8443-8542 (relay_port_base + id, id 1-100) - do not reuse an id after removing a node. Every node must declare its own ssh_user and ssh_key (providers default to different users, and keys may differ per node/provider too). ssh_key supports a leading ~/ for $HOME. Set friendly_name for the human label shown in subscriptions; name stays the stable machine identifier. Set hidden_nodes on a user under xray.users[] to omit selected nodes from that user's subscription. Set \"is_relay_entry\": true on a node to publish its relay ports (one per peer) in subscriptions via relay-mesh/subs/generate_subscriptions.sh - none are flagged yet, pick which node(s) should be public relay entry points.",
+  "relay_port_base": 8442,
+  "images": {
+    "_comment": "Container image refs for the xray stack (xray/warp/adguard). :latest by default; pin to a version tag or digest (e.g. \"teddysun/xray@sha256:<digest>\") for reproducible deploys. Rendered into each node's .env.",
+    "xray": "teddysun/xray:26.9.9",
+    "warp": "caomingjun/warp:latest",
+    "adguard": "adguard/adguardhome:latest"
+  },
+  "resolvers": {
+    "dns1": "1.1.1.1",
+    "dns2": "8.8.8.8",
+    "hold_valid": "10s"
+  },
+  "stats": {
+    "_comment": "Central stats service polls node stats through per-node HAProxy. Xray stats stay bound to host loopback; HAProxy exposes public_port with X-Stats-Token authorization and per-source rate limiting.",
+    "master_node": "germany",
+    "node_port": 9091,
+    "public_port": 9092,
+    "web_port": 443,
+    "app_port": 9094,
+    "web_domain": "paravozik.click",
+    "web_email": "kisialeu@gmail.com",
+    "expose_via_haproxy": true,
+    "token": "a62a3344c079e3e2c0e4ca6c47912b82d32d03ad120f285ed74b6a69abb3e386",
+    "allowed_sources": [
+      "0.0.0.0/0"
+    ],
+    "postgres_password": "7cf403877ce3480b560759fca5164ffe2ee7ac4908d4aa1b"
+  },
+  "hysteria": {
+    "acme_email": "kisialeu@gmail.com",
+    "masquerade_url": "",
+    "up_mbps": 200,
+    "down_mbps": 200,
+    "obfs_password": "6u9RUOeWID0UkWcZx7XNpKkvu70hYIB"
+  },
+  "subs": {
+    "_comment": "Subscription/CDN config. caddy_host is the always-up server running Caddy (fronted by CloudFront) - observed to currently be germany. sub_secret/origin_verify_secret are the same values already hardcoded in the old deploy.sh/certificate.sh - export SUB_SECRET/ORIGIN_VERIFY_SECRET yourself to override without editing this file (e.g. after rotating).",
+    "domain": "sub.kisialeu.com",
+    "zone_domain": "kisialeu.com",
+    "caddy_host": "swiss.kisialeu.com",
+    "caddy_deploy_dir": "/opt/caddy-subs",
+    "content_deploy_dir": "/opt/caddy-subs/subs",
+    "ssh_user": "root",
+    "ssh_key": "~/.ssh/my_custom_key",
+    "sub_secret": "e0943981717e115b0bb9ef4442ea3e8f52869ef4b817064ee50dfdd9772e0b9e",
+    "origin_verify_secret": "17e81ac354709cf093bbf662a7079365b991a4a60c7e9e9b562868bd774a1c1b"
+  },
+  "xray": {
+    "_comment": "Reality keys and users are identical on every node by design (same as the old deploy.sh USERS array). Leave private_key/public_key empty to have deploy_nodes.sh generate and persist them here on first run.",
+    "reality": {
+      "private_key": "mGvgUwffXzYUwb8S2kXJA294aZDsTgvxQLJmEbnY1HE",
+      "public_key": "asSY_u1dkr7FUbZ_8uEEbpBZ9DEYDfHG-zfcobKy_yc",
+      "short_id": "891f7782a08e5aae",
+      "sni": "www.googletagmanager.com"
+    },
+    "dns": {
+      "dns1": "172.29.0.10",
+      "dns2": "172.29.0.10"
+    },
+    "users": [
+      {
+        "uuid": "48e5af63-de69-4bd1-c807-0e02b2c3d479",
+        "email": "tyumen",
+        "subscription_access": {
+          "default": "deny",
+          "allow": [
+            {"path": "direct", "protocol": "xray", "node": "astana"},
+            {"path": "direct", "protocol": "xray", "node": "swiss"},
+            {"path": "direct", "protocol": "hysteria", "node": "astana"}
+          ]
+        }
+      },
+      {
+        "uuid": "479be5c2-a958-4428-a477-171756463b43",
+        "email": "krug",
+        "subscription_access": {
+          "default": "deny",
+          "allow": [
+            {"path": "direct", "protocol": "xray", "node": "astana"},
+            {"path": "direct", "protocol": "xray", "node": "swiss"},
+            {"path": "direct", "protocol": "hysteria", "node": "astana"}
+          ]
+        }
+      },
+      {
+        "uuid": "b11fc7ab-21fe-4d1c-a3ee-302787b6b54b",
+        "email": "kisialeu",
+        "subscription_access": {
+          "default": "deny",
+          "allow": [
+            {"path": "direct", "protocol": "xray", "node": "astana"},
+            {"path": "direct", "protocol": "xray", "node": "swiss"},
+            {"path": "direct", "protocol": "xray", "node": "germany"},
+            {"path": "direct", "protocol": "hysteria", "node": "astana"},
+            { "path": "relay", "entry": "astana", "destination": "germany"}
+          ]
+        }
+         },
+      {
+        "uuid": "daa06e63-a56f-4454-91bf-96c6b6c274d8",
+        "email": "marina",
+        "subscription_access": {
+          "default": "deny",
+          "allow": [
+            {"path": "direct", "protocol": "xray", "node": "astana"},
+            {"path": "direct", "protocol": "xray", "node": "swiss"},
+            {"path": "direct", "protocol": "hysteria", "node": "astana"},
+            { "path": "relay", "entry": "astana", "destination": "germany"},
+            {"path": "direct", "protocol": "xray", "node": "germany"}
+          ]
+        }      },
+      {
+        "uuid": "038fb116-0a41-459d-9817-946b1f318448",
+        "email": "alex_zyl",
+        "subscription_access": {
+          "default": "deny",
+          "allow": [
+            {"path": "direct", "protocol": "xray", "node": "astana"},
+            {"path": "direct", "protocol": "xray", "node": "swiss"},
+            {"path": "direct", "protocol": "hysteria", "node": "astana"}
+          ]
+        }
+      },
+      {
+        "uuid": "1051a339-ff70-4791-84f9-928f5036ffee",
+        "email": "lena_max",
+        "subscription_access": {
+          "default": "deny",
+          "allow": [
+            {"path": "direct", "protocol": "xray", "node": "astana"},
+            {"path": "direct", "protocol": "xray", "node": "swiss"},
+            {"path": "direct", "protocol": "hysteria", "node": "astana"}
+          ]
+        }
+      },
+      {
+        "uuid": "3d2dd574-f4fd-4486-9be0-c914b9cafb4c",
+        "email": "arsen",
+        "subscription_access": {
+          "default": "deny",
+          "allow": [
+            {"path": "direct", "protocol": "xray", "node": "astana"},
+            {"path": "direct", "protocol": "xray", "node": "swiss"},
+            {"path": "direct", "protocol": "hysteria", "node": "astana"}
+          ]
+        }
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "name": "germany",
+      "friendly_name": "Бавария",
+      "host": "178.104.89.117",
+      "direct_port": 8446,
+      "ssh_user": "root",
+      "ssh_key": "~/.ssh/my_custom_key",
+      "is_relay_entry": false
+    },
+    {
+      "id": 2,
+      "name": "swiss",
+      "friendly_name": "Швейцария",
+      "host": "179.237.105.63",
+      "direct_port": 8550,
+      "ssh_user": "root",
+      "ssh_key": "~/.ssh/my_custom_key",
+      "is_relay_entry": false
+    },
+    {
+      "id": 5,
+      "name": "astana",
+      "friendly_name": "Астана",
+      "host": "213.155.22.11",
+      "direct_port": 443,
+      "ssh_user": "root",
+      "ssh_key": "~/.ssh/my_custom_key",
+      "is_relay_entry": true,
+      "protocols": [
+        "xray",
+        "hysteria"
+      ],
+      "tls_domain": "kz.paravozik.click",
+      "hysteria_stats_secret": "d7568b58d0774f3c92c41a3fcbde2d79c2325c6e6fec1a7c08d4d8ab00751d92"
+    }
+  ]
+}
