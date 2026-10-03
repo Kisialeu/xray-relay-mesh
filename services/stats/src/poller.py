@@ -7,10 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import delete, select
 
-from config import ACTIVE_DURATION, HTTP_TIMEOUT, LOG, MIN_ACTIVITY_BYTES, POLL_INTERVAL, RETENTION_DAYS, SSH_KEY, SSH_KNOWN_HOSTS
+from config import ACTIVE_DURATION, HTTP_TIMEOUT, LOG, MIN_ACTIVITY_BYTES, ONLINE_WINDOW, POLL_INTERVAL, RETENTION_DAYS, SSH_KEY, SSH_KNOWN_HOSTS
 from db import session_scope
 from inventory import load_inventory
-from models import Health, PollRun, Previous, Sample, Total
+from models import Event, Health, PollRun, Previous, Sample, Total
 from protocols import PROTOCOLS
 
 
@@ -37,9 +37,32 @@ def fetch_json(url, token=""):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _last_event_kind(session, node, protocol, user, kinds):
+    return session.scalar(
+        select(Event.kind)
+        .where(Event.node == node, Event.protocol == protocol, Event.user_name == user, Event.kind.in_(kinds))
+        .order_by(Event.ts.desc(), Event.id.desc())
+        .limit(1)
+    )
+
+
+def _record_transition(session, ts, node, protocol, user, enter, leave, entered, text=""):
+    """Record `enter` when the state is entered and `leave` when it is left,
+    comparing with the last event stored for the same key."""
+    last = _last_event_kind(session, node, protocol, user, (enter, leave))
+    if entered and last != enter:
+        kind = enter
+    elif not entered and last == enter:
+        kind = leave
+    else:
+        return
+    session.add(Event(ts=ts, kind=kind, node=node, protocol=protocol, user_name=user, text=text))
+
+
 def set_health(node, protocol, ok, latency_ms, error=None):
     ts = int(time.time())
     with session_scope() as session:
+        _record_transition(session, ts, node, protocol, "", "node_down", "node_up", not ok, error or "")
         health = session.get(Health, (node, protocol))
         if health is None:
             health = Health(node=node, protocol=protocol, ok=bool(ok), latency_ms=latency_ms, error=error or "", ts=ts)
@@ -114,8 +137,13 @@ def accumulate(node, protocol, stats, online):
                 previous.was_active = is_active
 
         current_users = set(stats)
+        session.flush()
         totals = session.scalars(select(Total).where(Total.node == node, Total.protocol == protocol)).all()
         for total in totals:
+            _record_transition(
+                session, ts, node, protocol, total.user_name, "user_online", "user_offline",
+                total.last_online is not None and ts - int(total.last_online) <= ONLINE_WINDOW,
+            )
             if total.user_name in current_users:
                 continue
             total.online = False
@@ -148,6 +176,7 @@ def prune_samples():
     with session_scope() as session:
         session.execute(delete(Sample).where(Sample.ts < cutoff))
         session.execute(delete(PollRun).where(PollRun.ts < cutoff))
+        session.execute(delete(Event).where(Event.ts < cutoff))
 
 
 def fetch_ssh(node, endpoint):

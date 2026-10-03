@@ -183,7 +183,22 @@ in `poll_runs`, allowing charts to distinguish an idle interval from missing
 collector data. Historical samples created before this table existed have
 unknown coverage.
 
-Historical `samples` and `poll_runs` rows are deleted after the configured
+The poller writes a row to `events` when a node protocol goes down or recovers
+and when a user goes online or offline. The table is new and `init_db()` creates
+it without a reset. `/api/events?limit=<n>&node=<node>&user=<user>` returns the
+newest events first. `/api/polls?seconds=<seconds>&bucket=<seconds>` returns the
+poll count, failed polls, and latency for each node and time bucket.
+`/api/users/<user>/sessions?seconds=<seconds>` returns sessions that are derived
+from `samples`. A gap longer than `STATS_ONLINE_WINDOW` seconds between two
+samples starts a new session.
+
+`/api/analytics?seconds=<seconds>&bucket=<seconds>` returns the usage figures
+for the analytics section of the dashboard: previous-period traffic per user and
+node, active users per bucket, daily, weekly, and monthly active users, new users,
+and hourly traffic for the last 28 days. The previous period is `null` when twice
+the range is longer than the retention period.
+
+Historical `samples`, `poll_runs`, and `events` rows are deleted after the configured
 retention period, capped at 90 days. The `totals` and `prev` tables retain small
 operational counter baselines because deleting them would cause incorrect Xray
 counter deltas after cleanup; analytics never uses them for traffic outside the
@@ -198,9 +213,9 @@ STATS_ALLOW_DISCONTINUOUS_HISTORY=1 ./stats/switch_master.sh <new-master> ./inve
 ```
 
 The statistics pages are served by this backend and are exposed externally
-under the authenticated `/stats/` namespace. User rows link to
-`/stats/users/<user>`, which displays
-aggregate traffic and a per-node breakdown from the existing `samples` table.
+under the authenticated `/stats/` namespace. The dashboard opens a detail drawer
+for a user or a node. `/stats/users/<user>` and `/stats/nodes/<node>` open the
+dashboard with the matching drawer.
 Backend API routes remain available at
 `/stats/api/summary`, `/stats/api/nodes`, `/stats/api/users`,
 `/stats/api/nodes/<node>/users`, `/stats/api/nodes/<node>/history`, and the
