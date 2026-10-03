@@ -2,7 +2,7 @@ import time
 
 from sqlalchemy import case, func, select
 
-from config import ACTIVE_DURATION, HTTP_TIMEOUT, MIN_ACTIVITY_BYTES, ONLINE_WINDOW, POLL_INTERVAL
+from config import ACTIVE_DURATION, HTTP_TIMEOUT, MIN_ACTIVITY_BYTES, ONLINE_WINDOW, POLL_INTERVAL, RETENTION_DAYS
 from db import session_scope
 from inventory import node_names, node_protocol_pairs
 from models import Event, Health, PollRun, Sample, Total
@@ -492,4 +492,56 @@ def dashboard(seconds, bucket, traffic_seconds, poll_bucket):
         "polls": poll_history(seconds, poll_bucket),
         "events": event_rows(30),
         "analytics": {name: node_analytics(name, seconds, bucket) for name in sorted(node_names())},
+    }
+
+
+def analytics(seconds=86400, bucket=900):
+    """Longer-term usage figures that the live dashboard does not need on every
+    refresh: previous-period totals, active users, DAU/WAU/MAU, and hourly
+    traffic for the weekday/hour heatmap."""
+    now = int(time.time())
+    allowed = node_names()
+    retention = RETENTION_DAYS * 86400
+    traffic_bytes = func.sum(Sample.uplink + Sample.downlink)
+    bucket_ts = Sample.ts - (Sample.ts % bucket)
+    day_ts = Sample.ts - (Sample.ts % 86400)
+    in_nodes = Sample.node.in_(allowed)
+
+    def distinct_users(days):
+        return session.scalar(
+            select(func.count(func.distinct(Sample.user_name))).where(in_nodes, Sample.ts >= now - days * 86400)
+        ) or 0
+
+    with session_scope() as session:
+        previous = None
+        if seconds * 2 <= retention:
+            previous = {}
+            window = (in_nodes, Sample.ts >= now - 2 * seconds, Sample.ts < now - seconds)
+            for key, column in (("users", Sample.user_name), ("nodes", Sample.node)):
+                rows = session.execute(select(column, traffic_bytes).where(*window).group_by(column)).all()
+                previous[key] = {name: int(total or 0) for name, total in rows}
+        active = session.execute(
+            select(bucket_ts, func.count(func.distinct(Sample.user_name)))
+            .where(in_nodes, Sample.ts >= now - seconds)
+            .group_by(bucket_ts)
+        ).all()
+        daily = session.execute(
+            select(day_ts, func.count(func.distinct(Sample.user_name)))
+            .where(in_nodes, Sample.ts >= now - min(30 * 86400, retention))
+            .group_by(day_ts)
+        ).all()
+        first_seen = session.execute(
+            select(func.min(Sample.ts)).where(in_nodes).group_by(Sample.user_name)
+        ).scalars().all()
+        activity = {"dau": distinct_users(1), "wau": distinct_users(7), "mau": distinct_users(30)}
+    activity["new_7d"] = sum(1 for ts in first_seen if ts >= now - 7 * 86400)
+    activity["new_30d"] = sum(1 for ts in first_seen if ts >= now - 30 * 86400)
+    activity["daily"] = [{"ts": int(ts), "users": int(count)} for ts, count in sorted(daily)]
+    return {
+        "seconds": int(seconds),
+        "bucket_seconds": int(bucket),
+        "previous": previous,
+        "active_users": [{"ts": int(ts), "users": int(count)} for ts, count in sorted(active)],
+        "activity": activity,
+        "hourly": traffic_history(min(28 * 86400, retention), 3600),
     }

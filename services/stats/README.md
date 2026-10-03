@@ -192,6 +192,12 @@ poll count, failed polls, and latency for each node and time bucket.
 from `samples`. A gap longer than `STATS_ONLINE_WINDOW` seconds between two
 samples starts a new session.
 
+`/api/analytics?seconds=<seconds>&bucket=<seconds>` returns the usage figures
+for the analytics section of the dashboard: previous-period traffic per user and
+node, active users per bucket, daily, weekly, and monthly active users, new users,
+and hourly traffic for the last 28 days. The previous period is `null` when twice
+the range is longer than the retention period.
+
 Historical `samples`, `poll_runs`, and `events` rows are deleted after the configured
 retention period, capped at 90 days. The `totals` and `prev` tables retain small
 operational counter baselines because deleting them would cause incorrect Xray

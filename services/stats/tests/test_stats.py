@@ -28,7 +28,7 @@ from httpserver import app
 from models import Event, Health, PollRun, Previous, Sample, Total
 from poller import accumulate, set_health
 from protocols import PROTOCOLS
-from queries import dashboard, event_rows, node_analytics, node_history, node_user_rows, poll_history, traffic_history, user_analytics, user_rows, user_sessions
+from queries import analytics, dashboard, event_rows, node_analytics, node_history, node_user_rows, poll_history, traffic_history, user_analytics, user_rows, user_sessions
 
 parse_stats = PROTOCOLS["xray"]["parse_stats"]
 parse_online = PROTOCOLS["xray"]["parse_online"]
@@ -176,6 +176,20 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(set(result), {"nodes", "users", "traffic", "polls", "events", "analytics"})
         self.assertIn("node-a", result["analytics"])
         self.assertIn("node-a", result["polls"]["nodes"])
+
+    def test_analytics_counts_users_and_previous_period(self):
+        now = int(time.time())
+        with session_scope() as session:
+            for user, timestamp in (("alice", now - 100), ("alice", now - 5000), ("bob", now - 200), ("carol", now - 3 * 86400)):
+                session.add(Sample(node="node-a", protocol="xray", user_name=user, ts=timestamp, uplink=1, downlink=2))
+        result = analytics(3600, 600)
+        self.assertEqual(result["previous"]["users"], {"alice": 3})
+        self.assertEqual(result["previous"]["nodes"], {"node-a": 3})
+        self.assertEqual(sum(item["users"] for item in result["active_users"]), 2)
+        self.assertEqual((result["activity"]["dau"], result["activity"]["wau"]), (2, 3))
+        self.assertEqual(result["activity"]["new_7d"], 3)
+        self.assertIsNone(analytics(60 * 86400, 86400)["previous"])
+        self.assertEqual(len(result["hourly"]["series"]), 28 * 24 + 1)
 
     def test_query_token_is_rejected(self):
         client = app.test_client()

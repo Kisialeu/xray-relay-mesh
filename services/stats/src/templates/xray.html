@@ -16,13 +16,13 @@
       <span class="dim">RANGE</span><span id="ranges" class="button-row"></span>
       <span class="dim gap-left">THEME</span>
       <button id="theme-green" type="button">green</button><button id="theme-amber" type="button">amber</button><button id="theme-crt" type="button">CRT fx</button>
-      <span class="dim push-right">keys: 1-5 range | / filter | t theme | esc close</span>
+      <span class="dim push-right">keys: [ ] range | / filter | t theme | esc close</span>
     </div>
 
     <div id="kpis" class="kpis"></div>
 
     <section>
-        <h2>USERS <span class="filters"><input id="user-filter" type="search" placeholder="filter user/node ( / )" autocomplete="off" aria-label="Filter users"><select id="status-filter" aria-label="Filter status"><option value="all">all</option><option value="online">online</option><option value="active">traffic</option><option value="offline">offline</option><option value="unknown">no data</option></select></span></h2>
+        <h2>USERS <span class="filters"><input id="user-filter" type="search" placeholder="filter ( / )" autocomplete="off" aria-label="Filter users"><select id="status-filter" aria-label="Filter status"><option value="all">all</option><option value="online">online</option><option value="active">traffic</option><option value="offline">offline</option><option value="unknown">no data</option></select></span></h2>
         <div class="scroll"><table class="cards">
           <thead><tr><th class="sortable" data-sort="user">USER</th><th>PRESENCE</th><th>NODES</th><th>LAST NODE</th><th class="sortable" data-sort="last_online">LAST ONLINE</th><th class="r sortable" data-sort="period_uplink">UP</th><th class="r sortable" data-sort="period_downlink">DOWN</th><th class="r sortable" data-sort="period_total">RANGE</th><th>SHARE</th><th class="r sortable" data-sort="total">TOTAL</th></tr></thead>
           <tbody id="users"><tr><td colspan="10" class="dim">Loading users...</td></tr></tbody></table></div>
@@ -33,6 +33,17 @@
         <tbody id="nodes"><tr><td colspan="11" class="dim">Loading nodes...</td></tr></tbody></table></div></section>
 
     <section><h2>MESH TRAFFIC <span id="traffic-meta" class="dim"></span></h2><div id="mesh-chart"></div></section>
+
+    <section><h2>ANALYTICS <span id="analytics-note" class="dim"></span></h2>
+      <div class="analytics-grid">
+        <div class="span-2"><h3>PEAK HOURS</h3><div id="heatmap"></div></div>
+        <div><h3>TOP MOVERS</h3><div id="movers"></div></div>
+        <div><h3>ACTIVITY</h3><div id="activity"></div></div>
+        <div><h3>PROTOCOLS</h3><div id="protocols"></div></div>
+        <div><h3>CONCENTRATION</h3><div id="concentration"></div></div>
+        <div><h3>IDLE USERS <select id="idle-days" aria-label="Idle threshold"><option value="7">7d</option><option value="14" selected>14d</option><option value="30">30d</option></select></h3><div id="idle"></div></div>
+      </div>
+    </section>
 
     <div class="two-col">
       <section><h2>TRAFFIC BY NODE</h2><div id="by-node"></div></section>

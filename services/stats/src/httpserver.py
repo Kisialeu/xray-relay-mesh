@@ -9,7 +9,7 @@ from sqlalchemy import text
 from config import API_TOKEN, HTTP_TIMEOUT, POLL_INTERVAL
 from db import ENGINE
 from poller import poller_status
-from queries import dashboard, event_rows, health_rows, node_analytics, node_history, node_user_rows, poll_history, summary, traffic_history, user_analytics, user_history, user_history_all, user_rows, user_sessions
+from queries import analytics, dashboard, event_rows, health_rows, node_analytics, node_history, node_user_rows, poll_history, summary, traffic_history, user_analytics, user_history, user_history_all, user_rows, user_sessions
 
 
 app = Flask(__name__, static_folder="static", static_url_path="/static", template_folder="templates")
@@ -245,3 +245,16 @@ def api_dashboard():
     if bucket > seconds or poll_bucket > seconds:
         return jsonify(error="bucket must not exceed seconds"), 400
     return jsonify(dashboard(seconds, bucket, traffic_seconds, poll_bucket))
+
+
+@app.get("/api/analytics")
+@require_auth
+def api_analytics():
+    try:
+        seconds = _bounded_int("seconds", 86400, 3600, MAX_HISTORY_SECONDS)
+        bucket = _bounded_int("bucket", 900, 60, 86400)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if bucket > seconds:
+        return jsonify(error="bucket must not exceed seconds"), 400
+    return jsonify(analytics(seconds, bucket))
