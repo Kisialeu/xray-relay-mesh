@@ -25,10 +25,10 @@ from sqlalchemy import delete
 
 from db import init_db, session_scope
 from httpserver import app
-from models import Health, PollRun, Previous, Sample, Total
-from poller import accumulate
+from models import Event, Health, PollRun, Previous, Sample, Total
+from poller import accumulate, set_health
 from protocols import PROTOCOLS
-from queries import node_analytics, node_history, node_user_rows, traffic_history, user_analytics, user_rows
+from queries import dashboard, event_rows, node_analytics, node_history, node_user_rows, poll_history, traffic_history, user_analytics, user_rows, user_sessions
 
 parse_stats = PROTOCOLS["xray"]["parse_stats"]
 parse_online = PROTOCOLS["xray"]["parse_online"]
@@ -41,7 +41,7 @@ class StatsTest(unittest.TestCase):
 
     def setUp(self):
         with session_scope() as session:
-            for model in (Sample, PollRun, Previous, Total, Health):
+            for model in (Event, Sample, PollRun, Previous, Total, Health):
                 session.execute(delete(model))
 
     def test_parse_stats_and_online_formats(self):
@@ -128,6 +128,54 @@ class StatsTest(unittest.TestCase):
         self.assertEqual([item["ts"] for item in history], [200, 300])
         self.assertEqual(history[0]["uplink"], 4)
         self.assertEqual(history[0]["downlink"], 6)
+
+    def test_health_and_presence_changes_are_recorded_once(self):
+        set_health("node-a", "xray", True, 5)
+        set_health("node-a", "xray", False, 0, "Timeout")
+        set_health("node-a", "xray", False, 0, "Timeout")
+        set_health("node-a", "xray", True, 5)
+        self.assertEqual([item["kind"] for item in reversed(event_rows())], ["node_down", "node_up"])
+        self.assertEqual(event_rows(node="node-a", user="")[1]["text"], "Timeout")
+
+        with session_scope() as session:
+            session.add(Total(node="node-a", protocol="xray", user_name="alice", last_online=int(time.time())))
+        accumulate("node-a", "xray", {"alice": {"uplink": 1, "downlink": 1}}, {"alice"})
+        accumulate("node-a", "xray", {"alice": {"uplink": 1, "downlink": 1}}, {"alice"})
+        self.assertEqual([item["kind"] for item in event_rows(user="alice")], ["user_online"])
+        with session_scope() as session:
+            session.get(Total, ("node-a", "xray", "alice")).last_online = int(time.time()) - 3600
+        accumulate("node-a", "xray", {"alice": {"uplink": 1, "downlink": 1}}, set())
+        self.assertEqual([item["kind"] for item in event_rows(user="alice")], ["user_offline", "user_online"])
+
+    def test_user_sessions_split_on_gaps_longer_than_online_window(self):
+        now = int(time.time())
+        with session_scope() as session:
+            session.add(Total(node="node-a", protocol="xray", user_name="alice"))
+            for timestamp in (now - 600, now - 590, now - 580, now - 100, now - 90):
+                session.add(Sample(node="node-a", protocol="xray", user_name="alice", ts=timestamp, uplink=1, downlink=2))
+        result = user_sessions("alice", 3600)
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["sessions"][0]["bytes"], 6)
+        self.assertEqual(result["sessions"][1]["bytes"], 9)
+        self.assertEqual(result["first_seen"], now - 600)
+        self.assertIsNone(user_sessions("missing", 3600))
+
+    def test_poll_history_marks_failed_and_missing_buckets(self):
+        now = int(time.time())
+        with session_scope() as session:
+            session.add(PollRun(node="node-a", protocol="xray", ok=True, latency_ms=10, error="", ts=now - 10))
+            session.add(PollRun(node="node-a", protocol="xray", ok=False, latency_ms=0, error="x", ts=now - 5))
+        series = poll_history(3600, 60)["nodes"]["node-a"]
+        self.assertEqual(sum(item["polls"] for item in series), 2)
+        self.assertEqual(sum(item["failed"] for item in series), 1)
+        self.assertTrue(any(item["polls"] == 0 for item in series))
+        self.assertEqual(max(item["max_latency_ms"] or 0 for item in series), 10)
+
+    def test_dashboard_combines_all_panels(self):
+        result = dashboard(3600, 60, 7200, 120)
+        self.assertEqual(set(result), {"nodes", "users", "traffic", "polls", "events", "analytics"})
+        self.assertIn("node-a", result["analytics"])
+        self.assertIn("node-a", result["polls"]["nodes"])
 
     def test_query_token_is_rejected(self):
         client = app.test_client()

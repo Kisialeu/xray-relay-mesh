@@ -41,6 +41,24 @@ class PollRun(Base):
     ts: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class Event(Base):
+    """State changes recorded by the poller: node_down/node_up (user_name is
+    empty) and user_online/user_offline."""
+    __tablename__ = "events"
+    __table_args__ = (
+        Index("ix_events_ts", "ts"),
+        Index("ix_events_key_ts", "node", "protocol", "user", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    node: Mapped[str] = mapped_column(String(255), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(32), nullable=False)
+    user_name: Mapped[str] = mapped_column("user", String(255), nullable=False, default="")
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
 class Previous(Base):
     __tablename__ = "prev"
 

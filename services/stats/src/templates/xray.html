@@ -7,59 +7,46 @@
   <title>Xray Stats</title>
   <link rel="stylesheet" href="/stats/static/stats.css">
 </head>
-<body>
-  <main class="shell">
-    <header class="topbar">
-      <div class="brand-lockup">
-        <span class="signal-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <div><p class="eyebrow">XRAY RELAY MESH</p><h1>Traffic overview</h1></div>
-      </div>
-      <div class="topbar-meta">
-        <span id="connection-state" class="status-pill pending">CONNECTING</span>
-        <span id="last-refresh" class="refresh-time">Waiting for data</span>
-        <label class="range-control"><span>Period</span><select id="time-range"><option value="3600" selected>1 hour</option><option value="86400">24 hours</option><option value="604800">7 days</option><option value="2592000">30 days</option><option value="7776000">90 days</option></select></label>
-      </div>
-    </header>
+<body class="crt">
+  <main>
+    <div id="banner" class="banner"><span id="banner-text">CONNECTING</span><small id="banner-meta"></small></div>
+    <section id="access-error" class="notice hidden" role="alert"><strong>Statistics unavailable.</strong> <span id="access-error-text">Check the authenticated proxy and backend health.</span></section>
 
-    <section id="access-error" class="notice error hidden" role="alert"><strong>Statistics unavailable.</strong><span id="access-error-text">Check the authenticated proxy and backend health.</span></section>
-
-    <section class="metric-grid" aria-label="Summary">
-      <article class="metric-card accent-blue"><span class="metric-icon">01</span><span class="metric-label">Transferred</span><strong id="metric-total">-</strong><span class="metric-note" id="metric-range-note">across all nodes</span></article>
-      <article class="metric-card accent-purple"><span class="metric-icon">02</span><span class="metric-label">Throughput</span><strong id="metric-rate">-</strong></article>
-      <article class="metric-card accent-green"><span class="metric-icon">03</span><span class="metric-label">Online</span><strong id="metric-online">-</strong><span class="metric-note" id="metric-users-note">- users</span></article>
-      <article class="metric-card accent-amber"><span class="metric-icon">04</span><span class="metric-label">Node health</span><strong id="metric-nodes">-</strong></article>
-    </section>
-
-    <div class="dashboard-grid">
-      <section class="panel traffic-panel">
-        <div class="panel-heading"><h2>Traffic</h2><div class="panel-heading-meta"><span id="traffic-coverage" class="panel-count"></span><div class="chart-legend"><span><i class="legend-line upload"></i>Upload</span><span><i class="legend-line download"></i>Download</span></div></div></div>
-        <div id="mesh-traffic-chart" class="traffic-chart line-chart" role="img" aria-label="Mesh upload and download over time"></div>
-      </section>
-
-      <section class="panel nodes-panel">
-        <div class="panel-heading"><h2>Nodes</h2><span class="panel-count" id="node-count">0</span></div>
-        <div id="nodes" class="node-card-grid"><div class="empty">Loading node health...</div></div>
-      </section>
+    <div class="controls">
+      <span class="dim">RANGE</span><span id="ranges" class="button-row"></span>
+      <span class="dim gap-left">THEME</span>
+      <button id="theme-green" type="button">green</button><button id="theme-amber" type="button">amber</button><button id="theme-crt" type="button">CRT fx</button>
+      <span class="dim push-right">keys: 1-5 range | / filter | t theme | esc close</span>
     </div>
 
-    <div class="breakdown-grid">
-      <section class="panel breakdown-panel">
-        <div class="panel-heading"><h2>By node</h2></div>
-        <div id="node-traffic-breakdown" class="breakdown-list"><div class="empty">Loading node traffic...</div></div>
-      </section>
-      <section class="panel breakdown-panel">
-        <div class="panel-heading"><h2>By user</h2></div>
-        <div id="user-traffic-breakdown" class="breakdown-list"><div class="empty">Loading user traffic...</div></div>
-      </section>
-    </div>
+    <div id="kpis" class="kpis"></div>
 
-    <section class="panel users-panel">
-      <div class="panel-heading users-heading"><h2>Users</h2><div class="table-controls"><label class="search-box"><span class="sr-only">Filter users</span><input id="user-filter" type="search" placeholder="Search user or node" autocomplete="off"></label><label class="range-control"><span class="sr-only">Filter status</span><select id="status-filter"><option value="all">All</option><option value="online">Online</option><option value="active">Traffic</option><option value="offline">Offline</option><option value="unknown">No data</option></select></label></div></div>
-      <div class="table-wrap"><table><thead><tr><th><button class="sort-button" data-sort="user">User</button></th><th>Status</th><th>Last node</th><th><button class="sort-button" data-sort="last_online">Last online</button></th><th><button class="sort-button active descending" data-sort="period_total">Range</button></th><th><button class="sort-button" data-sort="total">Total</button></th></tr></thead><tbody id="users"><tr><td colspan="6" class="empty">Loading users...</td></tr></tbody></table></div>
-      <div id="users-mobile" class="mobile-user-list" aria-label="Users"></div>
+    <section>
+        <h2>USERS <span class="filters"><input id="user-filter" type="search" placeholder="filter user/node ( / )" autocomplete="off" aria-label="Filter users"><select id="status-filter" aria-label="Filter status"><option value="all">all</option><option value="online">online</option><option value="active">traffic</option><option value="offline">offline</option><option value="unknown">no data</option></select></span></h2>
+        <div class="scroll"><table class="cards">
+          <thead><tr><th class="sortable" data-sort="user">USER</th><th>PRESENCE</th><th>NODES</th><th>LAST NODE</th><th class="sortable" data-sort="last_online">LAST ONLINE</th><th class="r sortable" data-sort="period_uplink">UP</th><th class="r sortable" data-sort="period_downlink">DOWN</th><th class="r sortable" data-sort="period_total">RANGE</th><th>SHARE</th><th class="r sortable" data-sort="total">TOTAL</th></tr></thead>
+          <tbody id="users"><tr><td colspan="10" class="dim">Loading users...</td></tr></tbody></table></div>
     </section>
 
+    <section><h2>NODES</h2><div class="scroll"><table class="cards">
+        <thead><tr><th>NODE</th><th>PROTO</th><th>STATE</th><th class="r">LAT</th><th class="r">AVG</th><th class="r">AVAIL</th><th class="r">POLLS</th><th>LAST POLL</th><th class="r">ONLINE</th><th class="r">TRAFFIC</th><th>LOAD</th></tr></thead>
+        <tbody id="nodes"><tr><td colspan="11" class="dim">Loading nodes...</td></tr></tbody></table></div></section>
+
+    <section><h2>MESH TRAFFIC <span id="traffic-meta" class="dim"></span></h2><div id="mesh-chart"></div></section>
+
+    <div class="two-col">
+      <section><h2>TRAFFIC BY NODE</h2><div id="by-node"></div></section>
+      <section><h2>UPTIME</h2><div id="uptime"></div></section>
+    </div>
+
+    <div class="half-col">
+      <section><h2>ALERTS <span id="alert-count"></span></h2><div id="alerts"></div></section>
+      <section><h2>EVENTS</h2><div id="events" class="events"></div></section>
+    </div>
   </main>
+
+  <div id="shade"></div>
+  <aside id="drawer" aria-label="Details"></aside>
   <script src="/stats/static/stats.js"></script>
 </body>
 </html>

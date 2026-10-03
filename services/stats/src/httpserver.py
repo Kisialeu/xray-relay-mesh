@@ -9,7 +9,7 @@ from sqlalchemy import text
 from config import API_TOKEN, HTTP_TIMEOUT, POLL_INTERVAL
 from db import ENGINE
 from poller import poller_status
-from queries import health_rows, node_analytics, node_history, node_user_rows, summary, traffic_history, user_analytics, user_history, user_history_all, user_rows
+from queries import dashboard, event_rows, health_rows, node_analytics, node_history, node_user_rows, poll_history, summary, traffic_history, user_analytics, user_history, user_history_all, user_rows, user_sessions
 
 
 app = Flask(__name__, static_folder="static", static_url_path="/static", template_folder="templates")
@@ -49,12 +49,12 @@ def xray_page():
 
 @app.get("/users/<path:route>")
 def user_page(route):
-    return render_template("user.html")
+    return render_template("xray.html")
 
 
 @app.get("/nodes/<path:route>")
 def node_page(route):
-    return render_template("node.html")
+    return render_template("xray.html")
 
 
 @app.get("/api/health")
@@ -196,3 +196,52 @@ def api_user_analytics(user):
         return jsonify(error="bucket must not exceed seconds"), 400
     result = user_analytics(user, seconds, bucket)
     return (jsonify(result), 200) if result is not None else (jsonify(error="user not found"), 404)
+
+
+@app.get("/api/polls")
+@require_auth
+def api_polls():
+    try:
+        seconds = _bounded_int("seconds", 86400, 3600, MAX_HISTORY_SECONDS)
+        bucket = _bounded_int("bucket", 1800, 60, 86400)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if bucket > seconds:
+        return jsonify(error="bucket must not exceed seconds"), 400
+    return jsonify(poll_history(seconds, bucket))
+
+
+@app.get("/api/users/<user>/sessions")
+@require_auth
+def api_user_sessions(user):
+    try:
+        seconds = _bounded_int("seconds", 86400, 3600, MAX_HISTORY_SECONDS)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    result = user_sessions(user, seconds)
+    return (jsonify(result), 200) if result is not None else (jsonify(error="user not found"), 404)
+
+
+@app.get("/api/events")
+@require_auth
+def api_events():
+    try:
+        limit = int(request.args.get("limit", 50))
+    except (TypeError, ValueError):
+        return jsonify(error="limit must be an integer"), 400
+    return jsonify(event_rows(limit, request.args.get("node"), request.args.get("user")))
+
+
+@app.get("/api/dashboard")
+@require_auth
+def api_dashboard():
+    try:
+        seconds = _bounded_int("seconds", 86400, 3600, MAX_HISTORY_SECONDS)
+        bucket = _bounded_int("bucket", 300, 60, 86400)
+        traffic_seconds = _bounded_int("traffic_seconds", seconds, seconds, MAX_HISTORY_SECONDS)
+        poll_bucket = _bounded_int("poll_bucket", 1800, 60, 86400)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if bucket > seconds or poll_bucket > seconds:
+        return jsonify(error="bucket must not exceed seconds"), 400
+    return jsonify(dashboard(seconds, bucket, traffic_seconds, poll_bucket))

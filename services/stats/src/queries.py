@@ -5,7 +5,7 @@ from sqlalchemy import case, func, select
 from config import ACTIVE_DURATION, HTTP_TIMEOUT, MIN_ACTIVITY_BYTES, ONLINE_WINDOW, POLL_INTERVAL
 from db import session_scope
 from inventory import node_names, node_protocol_pairs
-from models import Health, PollRun, Sample, Total
+from models import Event, Health, PollRun, Sample, Total
 
 
 HEALTH_STALE_AFTER = max(POLL_INTERVAL * 3, int(POLL_INTERVAL + HTTP_TIMEOUT * 3))
@@ -382,3 +382,114 @@ def node_history(node, limit=500):
         {"ts": item.ts, "uplink": item.uplink, "downlink": item.downlink, "total": item.uplink + item.downlink}
         for item in reversed(items)
     ]
+
+
+def poll_history(seconds=86400, bucket=1800):
+    """Bucketed poll results per node (all protocols together). A bucket
+    without polls is None so charts can show missing collector data."""
+    now = int(time.time())
+    start = now - int(seconds)
+    bucket = int(bucket)
+    first_bucket = start - (start % bucket)
+    last_bucket = now - (now % bucket)
+    allowed = node_names()
+    poll_bucket = PollRun.ts - (PollRun.ts % bucket)
+    with session_scope() as session:
+        rows = session.execute(
+            select(
+                PollRun.node,
+                poll_bucket.label("bucket"),
+                func.count(PollRun.id).label("polls"),
+                func.sum(case((PollRun.ok.is_(True), 0), else_=1)).label("failed"),
+                func.avg(case((PollRun.ok.is_(True), PollRun.latency_ms))).label("latency"),
+                func.max(case((PollRun.ok.is_(True), PollRun.latency_ms))).label("max_latency"),
+            )
+            .where(PollRun.node.in_(allowed), PollRun.ts >= start)
+            .group_by(PollRun.node, poll_bucket)
+        ).all()
+    by_node = {name: {} for name in sorted(allowed)}
+    for row in rows:
+        by_node[row.node][int(row.bucket)] = {
+            "polls": int(row.polls),
+            "failed": int(row.failed or 0),
+            "average_latency_ms": round(float(row.latency), 1) if row.latency is not None else None,
+            "max_latency_ms": int(row.max_latency) if row.max_latency is not None else None,
+        }
+    empty = {"polls": 0, "failed": 0, "average_latency_ms": None, "max_latency_ms": None}
+    return {
+        "bucket_seconds": bucket,
+        "nodes": {
+            name: [{"ts": ts, **buckets.get(ts, empty)} for ts in range(first_bucket, last_bucket + 1, bucket)]
+            for name, buckets in by_node.items()
+        },
+    }
+
+
+def user_sessions(user, seconds=86400, limit=20):
+    """Sessions derived from traffic samples: consecutive active polls form one
+    session, a gap longer than ONLINE_WINDOW starts a new one."""
+    allowed = node_names()
+    start = int(time.time()) - int(seconds)
+    with session_scope() as session:
+        tracked = session.scalar(
+            select(func.count()).select_from(Total).where(Total.node.in_(allowed), Total.user_name == user)
+        )
+        if not tracked:
+            return None
+        first_seen = session.scalar(
+            select(func.min(Sample.ts)).where(Sample.node.in_(allowed), Sample.user_name == user)
+        )
+        rows = session.execute(
+            select(Sample.ts, func.sum(Sample.uplink + Sample.downlink).label("bytes"))
+            .where(Sample.node.in_(allowed), Sample.user_name == user, Sample.ts >= start)
+            .group_by(Sample.ts)
+            .order_by(Sample.ts)
+        ).all()
+    sessions = []
+    for row in rows:
+        if sessions and row.ts - sessions[-1]["end"] <= ONLINE_WINDOW:
+            sessions[-1]["end"] = int(row.ts)
+            sessions[-1]["bytes"] += int(row.bytes or 0)
+        else:
+            sessions.append({"start": int(row.ts), "end": int(row.ts), "bytes": int(row.bytes or 0)})
+    for item in sessions:
+        item["duration_seconds"] = item["end"] - item["start"] + POLL_INTERVAL
+    durations = sorted(item["duration_seconds"] for item in sessions)
+    return {
+        "seconds": int(seconds),
+        "first_seen": first_seen,
+        "count": len(sessions),
+        "median_seconds": durations[len(durations) // 2] if durations else None,
+        "longest_seconds": durations[-1] if durations else None,
+        "total_seconds": sum(durations),
+        "sessions": sessions[::-1][:max(1, min(int(limit), 100))],
+    }
+
+
+def event_rows(limit=50, node=None, user=None):
+    limit = max(1, min(int(limit), 200))
+    query = select(Event).where(Event.node.in_(node_names()))
+    if node is not None:
+        query = query.where(Event.node == node)
+    if user is not None:
+        query = query.where(Event.user_name == user)
+    with session_scope() as session:
+        items = session.scalars(query.order_by(Event.ts.desc(), Event.id.desc()).limit(limit)).all()
+        return [
+            {"ts": item.ts, "kind": item.kind, "node": item.node, "protocol": item.protocol, "user": item.user_name, "text": item.text}
+            for item in items
+        ]
+
+
+def dashboard(seconds, bucket, traffic_seconds, poll_bucket):
+    """Everything the dashboard page needs in one response, so one refresh is
+    one request (the proxy rate-limits /api/)."""
+    data = summary(seconds)
+    return {
+        "nodes": data["nodes"],
+        "users": data["users"],
+        "traffic": traffic_history(traffic_seconds, bucket),
+        "polls": poll_history(seconds, poll_bucket),
+        "events": event_rows(30),
+        "analytics": {name: node_analytics(name, seconds, bucket) for name in sorted(node_names())},
+    }
