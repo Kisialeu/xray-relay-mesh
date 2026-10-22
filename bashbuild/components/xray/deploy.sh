@@ -55,6 +55,12 @@ xray_deploy_one() {
         [ "$remote_digest" = "$local_digest" ] && changed=0
     fi
 
+    if [ "$rc" -eq 0 ] && [ "$changed" -eq 0 ]; then
+        info "$node ($host): Xray is unchanged; recreating containers"
+        xray_apply_services "$host" "$XRAY_DEPLOY_DIR" "$hysteria_enabled" none || rc=1
+        [ "$rc" -ne 0 ] || xray_verify "$host" "$hysteria_enabled" || rc=1
+    fi
+
     if [ "$rc" -eq 0 ] && [ "$changed" -eq 1 ]; then
         remote_backup_managed "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1
         [ "$rc" -ne 0 ] || remote_promote_stage "$host" "$XRAY_DEPLOY_DIR" "$run_id" || rc=1
