@@ -37,11 +37,9 @@ relay_deploy_one() {
         remote_digest="$(remote_managed_digest "$host" "$RELAY_DEPLOY_DIR" || true)"
         if [ "$remote_digest" = "$local_digest" ]; then
             changed=0
-            if ! relay_verify "$host" "$inventory"; then
-                info "$node ($host): relay is unchanged but not healthy; reconciling"
-                compose_apply "$host" "$RELAY_DEPLOY_DIR" none xray-relay || rc=1
-                [ "$rc" -ne 0 ] || relay_verify "$host" "$inventory" || rc=1
-            fi
+            info "$node ($host): relay is unchanged; recreating containers"
+            compose_apply "$host" "$RELAY_DEPLOY_DIR" none xray-relay || rc=1
+            [ "$rc" -ne 0 ] || relay_verify "$host" "$inventory" || rc=1
         fi
     fi
 

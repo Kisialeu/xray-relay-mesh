@@ -48,11 +48,9 @@ caddy_deploy() {
         remote_digest=$(remote_managed_digest "$host" "$deploy_dir" || true)
         if [ "$remote_digest" = "$local_digest" ]; then
             changed=0
-            if ! caddy_verify "$host"; then
-                info "$host: Caddy is unchanged but not healthy; reconciling"
-                compose_apply "$host" "$deploy_dir" none caddy-subs || rc=1
-                [ "$rc" -ne 0 ] || caddy_verify "$host" || rc=1
-            fi
+            info "$host: Caddy is unchanged; recreating containers"
+            compose_apply "$host" "$deploy_dir" none caddy-subs || rc=1
+            [ "$rc" -ne 0 ] || caddy_verify "$host" || rc=1
         fi
     fi
 

@@ -96,17 +96,21 @@
          "ssh_key": "~/.ssh/my_custom_key",
          "is_relay_entry": false
       },
-      {
+       {
          "id": 3,
-         "name": "istanbul",
-         "friendly_name": "Turkey",
-         "host": "istanbul.example.com",
-         "protocols": ["xray", "hysteria"],
-         "tls_domain": "istanbul.hysteria.example.com",
+         "name": "astana",
+         "friendly_name": "Астана",
+         "host": "1.1.1.1",
          "direct_port": 443,
          "ssh_user": "root",
          "ssh_key": "~/.ssh/my_custom_key",
-         "is_relay_entry": false
-      }
+         "is_relay_entry": true,
+         "protocols": [
+           "xray",
+           "hysteria"
+         ],
+         "tls_domain": "kz.paravozik.click",
+         "hysteria_stats_secret": "d7568b58d0774f3c92c41a3fcbde2d79c2325c6e6fec1a7c08d4d8ab00751d92"
+       }
    ]
 }

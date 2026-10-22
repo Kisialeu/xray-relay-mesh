@@ -228,7 +228,7 @@ set -euo pipefail
 sudo install -d -m 0700 -o 70 -g 70 "$1/postgres"
 sudo chmod 0600 "$1/.env"
 cd "$1"
-docker compose up -d --build --wait --wait-timeout 120
+docker compose up -d --build --force-recreate --wait --wait-timeout 120
 REMOTE
 cleanup_old_stats_keys "$HOST" "$NEW_STATS_PUB"
 success "$HOST: central stats service deployed"
