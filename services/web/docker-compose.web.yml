@@ -26,7 +26,7 @@ services:
       - ./htpasswd:/etc/nginx/.htpasswd:ro
       - ./letsencrypt:/etc/letsencrypt:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://127.0.0.1:$${WEB_PORT}/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -s --insecure --fail https://127.0.0.1:${WEB_PORT}/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
